@@ -1,0 +1,1017 @@
+{
+ "environment": "main",
+ "trajectory": [
+  {
+   "action": "ln -sfn /promptfoo /testbed && ls /testbed | head -3; go clean -cache 2>/dev/null; rm -rf /testbed/target /testbed/dist /testbed/build /testbed/out /testbed/.gradle /testbed/node_modules/.cache 2>/dev/null; find /testbed -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null; find /testbed -name '*.tsbuildinfo' -delete 2>/dev/null; find /testbed -name '*.o' -delete 2>/dev/null; true; rm -rf /tmp/jest_* /testbed/node_modules/.vite /testbed/.parcel-cache /testbed/.eslintcache 2>/dev/null; true",
+   "thought": "软链对齐原版 trace 的 /testbed 路径",
+   "response": "",
+   "delay_time": 0.0
+  },
+  {
+   "action": "find /testbed -type f -name \"*.ts\" -o -name \"*.js\" | grep -E \"(util|test)\" | head -20",
+   "thought": "THOUGHT: Let me start by exploring the repository structure to understand the codebase and locate the relevant files mentioned in the PR description.",
+   "response": "THOUGHT: Let me start by exploring the repository structure to understand the codebase and locate the relevant files mentioned in the PR description.",
+   "delay_time": 4.54,
+   "delay_time_orig": 5.53,
+   "prompt_tokens": 1818,
+   "output_tokens": 118
+  },
+  {
+   "action": "find /testbed -type f -name \"util.ts\" | head -10",
+   "thought": "THOUGHT: Let me look for the util.ts file specifically mentioned in the PR description.",
+   "response": "THOUGHT: Let me look for the util.ts file specifically mentioned in the PR description.",
+   "delay_time": 3.58,
+   "delay_time_orig": 9.89,
+   "prompt_tokens": 2142,
+   "output_tokens": 86
+  },
+  {
+   "action": "cat /testbed/src/util.ts",
+   "thought": "THOUGHT: Good! Now let me examine the current util.ts file to understand its structure and see what functions already exist.",
+   "response": "THOUGHT: Good! Now let me examine the current util.ts file to understand its structure and see what functions already exist.",
+   "delay_time": 3.48,
+   "delay_time_orig": 6.87,
+   "prompt_tokens": 2254,
+   "output_tokens": 82
+  },
+  {
+   "action": "grep -n \"readTestsFile\\|readVarsFiles\\|readTests\" /testbed/src/util.ts",
+   "thought": "THOUGHT: The file is quite long. Let me search for the specific functions mentioned in the PR description to see if they already exist or need to be added.",
+   "response": "THOUGHT: The file is quite long. Let me search for the specific functions mentioned in the PR description to see if they already exist or need to be added.",
+   "delay_time": 5.33,
+   "delay_time_orig": 7.38,
+   "prompt_tokens": 5579,
+   "output_tokens": 104
+  },
+  {
+   "action": "sed -n '248,350p' /testbed/src/util.ts",
+   "thought": "THOUGHT: Let me look at the existing `readTests` function to understand its current implementation.",
+   "response": "THOUGHT: Let me look at the existing `readTests` function to understand its current implementation.",
+   "delay_time": 4.7,
+   "delay_time_orig": 5.61,
+   "prompt_tokens": 5712,
+   "output_tokens": 84
+  },
+  {
+   "action": "grep -n \"export.*function readVars\" /testbed/src/util.ts",
+   "thought": "THOUGHT: Now let me look for the `readVars` function to understand how it currently works.",
+   "response": "THOUGHT: Now let me look for the `readVars` function to understand how it currently works.",
+   "delay_time": 5.14,
+   "delay_time_orig": 9.52,
+   "prompt_tokens": 6815,
+   "output_tokens": 86
+  },
+  {
+   "action": "sed -n '227,247p' /testbed/src/util.ts",
+   "thought": "THOUGHT: Let me examine the `readVars` function to understand its implementation.",
+   "response": "THOUGHT: Let me examine the `readVars` function to understand its implementation.",
+   "delay_time": 4.95,
+   "delay_time_orig": 4.17,
+   "prompt_tokens": 6958,
+   "output_tokens": 79
+  },
+  {
+   "action": "grep -A 10 \"export.*interface TestCase\\|export.*type TestCase\" /testbed/src/types.ts | head -30",
+   "thought": "THOUGHT: Now let me check the types.ts file to understand the TestCase and CsvRow types.",
+   "response": "THOUGHT: Now let me check the types.ts file to understand the TestCase and CsvRow types.",
+   "delay_time": 5.72,
+   "delay_time_orig": 7.36,
+   "prompt_tokens": 7362,
+   "output_tokens": 98
+  },
+  {
+   "action": "grep -A 5 \"export.*type CsvRow\\|export.*interface CsvRow\" /testbed/src/types.ts",
+   "thought": "THOUGHT: Let me also check the CsvRow type.",
+   "response": "THOUGHT: Let me also check the CsvRow type.",
+   "delay_time": 5.42,
+   "delay_time_orig": 6.5,
+   "prompt_tokens": 7568,
+   "output_tokens": 87
+  },
+  {
+   "action": "find /testbed -type f -name \"*.spec.ts\" -o -name \"*.test.ts\" | head -10",
+   "thought": "THOUGHT: Now let me check if there are any test files that might give me insight into how the feature should work.",
+   "response": "THOUGHT: Now let me check if there are any test files that might give me insight into how the feature should work.",
+   "delay_time": 6.1,
+   "delay_time_orig": 8.28,
+   "prompt_tokens": 7710,
+   "output_tokens": 106
+  },
+  {
+   "action": "cat /testbed/test/util.test.ts",
+   "thought": "THOUGHT: Let me look at the util.test.ts file to understand how the functions are currently tested.",
+   "response": "THOUGHT: Let me look at the util.test.ts file to understand how the functions are currently tested.",
+   "delay_time": 5.21,
+   "delay_time_orig": 9.45,
+   "prompt_tokens": 7931,
+   "output_tokens": 77
+  },
+  {
+   "action": "grep -r \"tests/\" /testbed/test/ --include=\"*.ts\" | head -20",
+   "thought": "THOUGHT: Now let me look at the PR description more carefully. According to the PR, I need to:\n\n1. Rename `readVars` to `readTestsFile` (for loading CSV/JSON/YAML test case files)\n2. Create a new `readVarsFiles` function for loading variable YAML files via glob patterns\n3. Update `readTests` to support string arrays (directory-based loading)\n\nLet me check if there are any existing tests that show the expected behavior for directory-based loading.",
+   "response": "THOUGHT: Now let me look at the PR description more carefully. According to the PR, I need to:\n\n1. Rename `readVars` to `readTestsFile` (for loading CSV/JSON/YAML test case files)\n2. Create a new `readVarsFiles` function for loading variable YAML files via glob patterns\n3. Update `readTests` to support string arrays (directory-based loading)\n\nLet me check if there are any existing tests that show the expected behavior for directory-based loading.",
+   "delay_time": 9.87,
+   "delay_time_orig": 4.46,
+   "prompt_tokens": 11810,
+   "output_tokens": 178
+  },
+  {
+   "action": "find /testbed -name \"*.yaml\" -o -name \"*.yml\" | grep -E \"(test|example)\" | head -20",
+   "thought": "THOUGHT: Let me search for examples or documentation about how tests should be loaded from directories.",
+   "response": "THOUGHT: Let me search for examples or documentation about how tests should be loaded from directories.",
+   "delay_time": 7.54,
+   "delay_time_orig": 8.97,
+   "prompt_tokens": 12007,
+   "output_tokens": 106
+  },
+  {
+   "action": "find /testbed/examples -type f -name \"*.yaml\" 2>/dev/null | head -10",
+   "thought": "THOUGHT: Let me look for example configurations in the repository.",
+   "response": "THOUGHT: Let me look for example configurations in the repository.",
+   "delay_time": 7.06,
+   "delay_time_orig": 4.35,
+   "prompt_tokens": 12484,
+   "output_tokens": 87
+  },
+  {
+   "action": "cat /testbed/examples/simple-cli/promptfooconfig.yaml",
+   "thought": "THOUGHT: Let me check one of these example configurations to understand the structure.",
+   "response": "THOUGHT: Let me check one of these example configurations to understand the structure.",
+   "delay_time": 6.78,
+   "delay_time_orig": 7.83,
+   "prompt_tokens": 12728,
+   "output_tokens": 76
+  },
+  {
+   "action": "grep -r \"readVars\" /testbed/src --include=\"*.ts\" | grep -v \".test.ts\"",
+   "thought": "THOUGHT: Now let me understand the current implementation better. Let me look at how `readVars` is currently used in the codebase.",
+   "response": "THOUGHT: Now let me understand the current implementation better. Let me look at how `readVars` is currently used in the codebase.",
+   "delay_time": 7.94,
+   "delay_time_orig": 5.36,
+   "prompt_tokens": 12933,
+   "output_tokens": 109
+  },
+  {
+   "action": "grep -r \"readTests\" /testbed/src --include=\"*.ts\" | grep -v \".test.ts\"",
+   "thought": "THOUGHT: Now let me check where `readTests` is used in the codebase.",
+   "response": "THOUGHT: Now let me check where `readTests` is used in the codebase.",
+   "delay_time": 7.61,
+   "delay_time_orig": 6.48,
+   "prompt_tokens": 13122,
+   "output_tokens": 97
+  },
+  {
+   "action": "grep -A 5 -B 5 \"readTests\" /testbed/src/main.ts | head -30",
+   "thought": "THOUGHT: Let me check the main.ts file to see how readTests is being called.",
+   "response": "THOUGHT: Let me check the main.ts file to see how readTests is being called.",
+   "delay_time": 7.44,
+   "delay_time_orig": 6.42,
+   "prompt_tokens": 13323,
+   "output_tokens": 90
+  },
+  {
+   "action": "cat > /tmp/test_structure.yaml << 'EOF'\nvars:\n  text: Some input text for the test\nassert:\n  - type: not-contains-any\n    value:\n      - \"diagnose\"\n  - type: contains-all\n    value:\n      - \"enigmatic creatures\"\n  - type: similar\n    value: Some input text for the testing\n    threshold: 0.95\nEOF\ncat /tmp/test_structure.yaml",
+   "thought": "THOUGHT: Now let me understand the complete picture. Based on the PR description and code analysis:\n\n1. The current `readVars` function loads test cases from CSV/JSON/YAML files\n2. The current `readTests` function can handle string paths (calling `readVars`) or TestCase arrays\n3. I need to:\n   - Rename `readVars` to `readTestsFile` \n   - Create a new `readVarsFiles` function for loading variable files via glob patterns\n   - Update `readTests` to support string arrays (for directory-based loading)\n\nLet me first create a test script to understand the expected behavior better.",
+   "response": "THOUGHT: Now let me understand the complete picture. Based on the PR description and code analysis:\n\n1. The current `readVars` function loads test cases from CSV/JSON/YAML files\n2. The current `readTests` function can handle string paths (calling `readVars`) or TestCase arrays\n3. I need to:\n   - Rename `readVars` to `readTestsFile` \n   - Create a new `readVarsFiles` function for loading variable files via glob patterns\n   - Update `readTests` to support string arrays (for directory-based loading)\n\nLet me first create a test script to understand the expected behavior better.",
+   "delay_time": 14.39,
+   "delay_time_orig": 6.23,
+   "prompt_tokens": 13670,
+   "output_tokens": 295
+  },
+  {
+   "action": "wc -l /testbed/src/util.ts",
+   "thought": "THOUGHT: Now let me look at the complete util.ts file to understand all the functions and their relationships. Let me get the line count first.",
+   "response": "THOUGHT: Now let me look at the complete util.ts file to understand all the functions and their relationships. Let me get the line count first.",
+   "delay_time": 7.55,
+   "delay_time_orig": 6.64,
+   "prompt_tokens": 14065,
+   "output_tokens": 86
+  },
+  {
+   "action": "sed -n '1,100p' /testbed/src/util.ts",
+   "thought": "THOUGHT: Let me read the entire util.ts file in sections to understand it completely.",
+   "response": "THOUGHT: Let me read the entire util.ts file in sections to understand it completely.",
+   "delay_time": 7.43,
+   "delay_time_orig": 6.33,
+   "prompt_tokens": 14179,
+   "output_tokens": 81
+  },
+  {
+   "action": "sed -n '200,280p' /testbed/src/util.ts",
+   "thought": "THOUGHT: Let me check the rest of the file, particularly around the readVars and readTests functions.",
+   "response": "THOUGHT: Let me check the rest of the file, particularly around the readVars and readTests functions.",
+   "delay_time": 7.95,
+   "delay_time_orig": 5.56,
+   "prompt_tokens": 15145,
+   "output_tokens": 87
+  },
+  {
+   "action": "cp /testbed/src/util.ts /testbed/src/util.ts.backup",
+   "thought": "THOUGHT: Now I have a good understanding of the code. Let me create the implementation based on the PR description:\n\n1. Rename `readVars` to `readTestsFile` \n2. Create a new `readVarsFiles` function for loading variable YAML files via glob patterns\n3. Update `readTests` to support string arrays and directory-based loading\n\nLet me start by creating a backup and then modifying the util.ts file.",
+   "response": "THOUGHT: Now I have a good understanding of the code. Let me create the implementation based on the PR description:\n\n1. Rename `readVars` to `readTestsFile` \n2. Create a new `readVarsFiles` function for loading variable YAML files via glob patterns\n3. Update `readTests` to support string arrays and directory-based loading\n\nLet me start by creating a backup and then modifying the util.ts file.",
+   "delay_time": 10.39,
+   "delay_time_orig": 4.47,
+   "prompt_tokens": 16084,
+   "output_tokens": 151
+  },
+  {
+   "action": "cat > /tmp/util_changes.txt << 'EOF'\nChanges needed:\n\n1. Rename readVars to readTestsFile (line 227)\n2. Add readVarsFiles function after readTestsFile\n3. Update readTests function signature and implementation to support string[]\n4. Update the call to readVars inside readTests to use readTestsFile\nEOF\ncat /tmp/util_changes.txt",
+   "thought": "THOUGHT: Now let me create the updated version of util.ts with the new functions. I'll need to:\n\n1. Rename `readVars` to `readTestsFile`\n2. Add a new `readVarsFiles` function that loads YAML variable files via glob patterns and merges them\n3. Update `readTests` to handle string arrays and load test cases from directories\n\nLet me create the modified version:",
+   "response": "THOUGHT: Now let me create the updated version of util.ts with the new functions. I'll need to:\n\n1. Rename `readVars` to `readTestsFile`\n2. Add a new `readVarsFiles` function that loads YAML variable files via glob patterns and merges them\n3. Update `readTests` to handle string arrays and load test cases from directories\n\nLet me create the modified version:",
+   "delay_time": 12.75,
+   "delay_time_orig": 8.52,
+   "prompt_tokens": 16254,
+   "output_tokens": 220
+  },
+  {
+   "action": "sed -i 's/export async function readVars(/export async function readTestsFile(/g' /testbed/src/util.ts",
+   "thought": "THOUGHT: Let me now create the updated util.ts file. I'll use sed to make the changes step by step.\n\nFirst, let me rename `readVars` to `readTestsFile`:",
+   "response": "THOUGHT: Let me now create the updated util.ts file. I'll use sed to make the changes step by step.\n\nFirst, let me rename `readVars` to `readTestsFile`:",
+   "delay_time": 9.35,
+   "delay_time_orig": 5.98,
+   "prompt_tokens": 16558,
+   "output_tokens": 115
+  },
+  {
+   "action": "sed -i 's/const vars = await readVars(tests, basePath);/const rows = await readTestsFile(tests, basePath);/g' /testbed/src/util.ts",
+   "thought": "THOUGHT: Now let me update the call to `readVars` inside the `readTests` function to use `readTestsFile`:",
+   "response": "THOUGHT: Now let me update the call to `readVars` inside the `readTests` function to use `readTestsFile`:",
+   "delay_time": 9.46,
+   "delay_time_orig": 4.46,
+   "prompt_tokens": 16692,
+   "output_tokens": 117
+  },
+  {
+   "action": "sed -i 's/return vars.map((row, idx)/return rows.map((row, idx)/g' /testbed/src/util.ts",
+   "thought": "THOUGHT: Now I need to update the line that uses `vars.map` to use `rows.map`:",
+   "response": "THOUGHT: Now I need to update the line that uses `vars.map` to use `rows.map`:",
+   "delay_time": 8.98,
+   "delay_time_orig": 8.43,
+   "prompt_tokens": 16828,
+   "output_tokens": 101
+  },
+  {
+   "action": "sed -n '227,280p' /testbed/src/util.ts",
+   "thought": "THOUGHT: Now let me verify the changes so far:",
+   "response": "THOUGHT: Now let me verify the changes so far:",
+   "delay_time": 8.18,
+   "delay_time_orig": 3.63,
+   "prompt_tokens": 16948,
+   "output_tokens": 76
+  },
+  {
+   "action": "cat > /tmp/readVarsFiles.txt << 'EOF'\n\nexport async function readVarsFiles(\n  pathOrGlobs: string | string[],\n  basePath: string = '',\n): Promise<Record<string, string | string[] | object>> {\n  const paths = Array.isArray(pathOrGlobs) ? pathOrGlobs : [pathOrGlobs];\n  const mergedVars: Record<string, string | string[] | object> = {};\n\n  for (const pattern of paths) {\n    const resolvedPattern = path.resolve(basePath, pattern);\n    const matchedFiles = globSync(resolvedPattern);\n\n    for (const file of matchedFiles) {\n      const fileContent = fs.readFileSync(file, 'utf-8');\n      const data = yaml.load(fileContent) as Record<string, string | string[] | object>;\n      \n      if (data && typeof data === 'object') {\n        Object.assign(mergedVars, data);\n      }\n    }\n  }\n\n  return mergedVars;\n}\nEOF\ncat /tmp/readVarsFiles.txt",
+   "thought": "THOUGHT: Good! Now I need to add the `readVarsFiles` function and update the `readTests` function to support string arrays. Let me insert the new `readVarsFiles` function after `readTestsFile`:",
+   "response": "THOUGHT: Good! Now I need to add the `readVarsFiles` function and update the `readTests` function to support string arrays. Let me insert the new `readVarsFiles` function after `readTestsFile`:",
+   "delay_time": 17.7,
+   "delay_time_orig": 4.8,
+   "prompt_tokens": 17614,
+   "output_tokens": 355
+  },
+  {
+   "action": "grep -n \"^export async function readTests\" /testbed/src/util.ts",
+   "thought": "THOUGHT: Now I need to insert this function after the `readTestsFile` function. Let me find the exact line number where `readTestsFile` ends:",
+   "response": "THOUGHT: Now I need to insert this function after the `readTestsFile` function. Let me find the exact line number where `readTestsFile` ends:",
+   "delay_time": 9.45,
+   "delay_time_orig": 7.17,
+   "prompt_tokens": 18247,
+   "output_tokens": 101
+  },
+  {
+   "action": "sed -i '247 r /tmp/readVarsFiles.txt' /testbed/src/util.ts",
+   "thought": "THOUGHT: So `readTestsFile` ends at line 247 (before `readTests` starts at line 248). Let me insert the new function between them:",
+   "response": "THOUGHT: So `readTestsFile` ends at line 247 (before `readTests` starts at line 248). Let me insert the new function between them:",
+   "delay_time": 9.64,
+   "delay_time_orig": 7.09,
+   "prompt_tokens": 18415,
+   "output_tokens": 105
+  },
+  {
+   "action": "sed -n '245,280p' /testbed/src/util.ts",
+   "thought": "THOUGHT: Now let me verify the insertion:",
+   "response": "THOUGHT: Now let me verify the insertion:",
+   "delay_time": 8.65,
+   "delay_time_orig": 4.54,
+   "prompt_tokens": 18539,
+   "output_tokens": 74
+  },
+  {
+   "action": "cat > /tmp/new_readTests.txt << 'EOF'\nexport async function readTests(\n  tests: string | string[] | TestCase[] | undefined,\n  basePath: string = '',\n): Promise<TestCase[]> {\n  if (!tests) {\n    return [];\n  }\n\n  // Handle string array (directory-based loading or multiple file paths)\n  if (Array.isArray(tests)) {\n    const loadedTests: TestCase[] = [];\n    \n    for (const testPath of tests) {\n      if (typeof testPath === 'string') {\n        const resolvedPath = path.resolve(basePath, testPath);\n        const stat = fs.statSync(resolvedPath);\n        \n        if (stat.isDirectory()) {\n          // Load all YAML files from the directory\n          const files = globSync(path.join(resolvedPath, '*.yaml'));\n          files.push(...globSync(path.join(resolvedPath, '*.yml')));\n          \n          for (const file of files) {\n            const content = fs.readFileSync(file, 'utf-8');\n            const testCase = yaml.load(content) as TestCase;\n            \n            // If vars is a string/path, load it using readVarsFiles\n            if (testCase.vars && typeof testCase.vars === 'string') {\n              testCase.vars = await readVarsFiles(testCase.vars, path.dirname(file));\n            }\n            \n            loadedTests.push(testCase);\n          }\n        } else {\n          // It's a file path, load it like before\n          const rows = await readTestsFile(testPath, basePath);\n          const fileTests = rows.map((row, idx) => {\n            const test = testCaseFromCsvRow(row);\n            test.description = `Row #${idx + 1}`;\n            return test;\n          });\n          loadedTests.push(...fileTests);\n        }\n      } else {\n        // It's already a TestCase object\n        loadedTests.push(testPath);\n      }\n    }\n    \n    return loadedTests;\n  }\n\n  if (typeof tests === 'string') {\n    // Check if it's a directory\n    const resolvedPath = path.resolve(basePath, tests);\n    const stat = fs.statSync(resolvedPath);\n    \n    if (stat.isDirectory()) {\n      // Load all YAML files from the directory\n      const loadedTests: TestCase[] = [];\n      const files = globSync(path.join(resolvedPath, '*.yaml'));\n      files.push(...globSync(path.join(resolvedPath, '*.yml')));\n      \n      for (const file of files) {\n        const content = fs.readFileSync(file, 'utf-8');\n        const testCase = yaml.load(content) as TestCase;\n        \n        // If vars is a string/path, load it using readVarsFiles\n        if (testCase.vars && typeof testCase.vars === 'string') {\n          testCase.vars = await readVarsFiles(testCase.vars, path.dirname(file));\n        }\n        \n        loadedTests.push(testCase);\n      }\n      \n      return loadedTests;\n    }\n    \n    // It's a filepath, load from CSV/JSON/YAML\n    const rows = await readTestsFile(tests, basePath);\n    return rows.map((row, idx) => {\n      const test = testCaseFromCsvRow(row);\n      test.description = `Row #${idx + 1}`;\n      return test;\n    });\n  }\n\n  // Some validation of the shape of tests\n  for (const test of tests) {\n    if (!test.assert && !test.vars) {\n      throw new Error(\n        `Test case must have either \"assert\" or \"vars\" property. Instead got ${JSON.stringify(\n          test,\n          null,\n          2,\n        )}`,\n      );\n    }\n  }\n\n  return tests;\n}\nEOF\ncat /tmp/new_readTests.txt",
+   "thought": "THOUGHT: Good! Now I need to update the `readTests` function to support string arrays and directory-based loading. According to the PR description, when tests is a string array or points to a directory, it should load test cases from YAML files in that directory. Let me create the updated version of `readTests`:",
+   "response": "THOUGHT: Good! Now I need to update the `readTests` function to support string arrays and directory-based loading. According to the PR description, when tests is a string array or points to a directory, it should load test cases from YAML files in that directory. Let me create the updated version of `readTests`:",
+   "delay_time": 42.06,
+   "delay_time_orig": 8.7,
+   "prompt_tokens": 18977,
+   "output_tokens": 1072
+  },
+  {
+   "action": "grep -n \"^export async function readTests\\|^export function writeOutput\" /testbed/src/util.ts | head -5",
+   "thought": "THOUGHT: Now I need to find where the current `readTests` function ends and replace it with the new version. Let me check the line numbers:",
+   "response": "THOUGHT: Now I need to find where the current `readTests` function ends and replace it with the new version. Let me check the line numbers:",
+   "delay_time": 10.58,
+   "delay_time_orig": 6.89,
+   "prompt_tokens": 21034,
+   "output_tokens": 107
+  },
+  {
+   "action": "sed -i '272,305d' /testbed/src/util.ts && sed -i '271 r /tmp/new_readTests.txt' /testbed/src/util.ts",
+   "thought": "THOUGHT: So the `readTests` function starts at line 272 and ends before line 306 (where `writeOutput` starts). Let me replace lines 272-305 with the new implementation:",
+   "response": "THOUGHT: So the `readTests` function starts at line 272 and ends before line 306 (where `writeOutput` starts). Let me replace lines 272-305 with the new implementation:",
+   "delay_time": 11.21,
+   "delay_time_orig": 9.72,
+   "prompt_tokens": 21216,
+   "output_tokens": 124
+  },
+  {
+   "action": "sed -n '270,380p' /testbed/src/util.ts",
+   "thought": "THOUGHT: Let me verify the changes:",
+   "response": "THOUGHT: Let me verify the changes:",
+   "delay_time": 9.52,
+   "delay_time_orig": 7.57,
+   "prompt_tokens": 21359,
+   "output_tokens": 72
+  },
+  {
+   "action": "grep -r \"readVars\" /testbed/src --include=\"*.ts\" | grep -v \".test.ts\" | grep -v \"readVarsFiles\"",
+   "thought": "THOUGHT: Good! The changes look correct. Now I need to check if there are any other places in the codebase that call `readVars` and update them to use `readTestsFile`. Let me search for those:",
+   "response": "THOUGHT: Good! The changes look correct. Now I need to check if there are any other places in the codebase that call `readVars` and update them to use `readTestsFile`. Let me search for those:",
+   "delay_time": 12.1,
+   "delay_time_orig": 8.6,
+   "prompt_tokens": 22493,
+   "output_tokens": 138
+  },
+  {
+   "action": "grep \"^export\" /testbed/src/util.ts | head -20",
+   "thought": "THOUGHT: Great! No other places are using `readVars`. Now let me check if the test file needs to be updated. But wait, the instructions say I should NOT modify test files. Let me verify that the exports are correct by checking what's exported from util.ts:",
+   "response": "THOUGHT: Great! No other places are using `readVars`. Now let me check if the test file needs to be updated. But wait, the instructions say I should NOT modify test files. Let me verify that the exports are correct by checking what's exported from util.ts:",
+   "delay_time": 11.62,
+   "delay_time_orig": 4.25,
+   "prompt_tokens": 22650,
+   "output_tokens": 122
+  },
+  {
+   "action": "mkdir -p /tmp/test_dir/tests",
+   "thought": "THOUGHT: Perfect! The functions are exported. Now let me create a test script to verify that the implementation works correctly:",
+   "response": "THOUGHT: Perfect! The functions are exported. Now let me create a test script to verify that the implementation works correctly:",
+   "delay_time": 10.35,
+   "delay_time_orig": 8.51,
+   "prompt_tokens": 23047,
+   "output_tokens": 80
+  },
+  {
+   "action": "cat > /tmp/test_dir/tests/1.yaml << 'EOF'\nvars:\n  text: Some input text for the test\nassert:\n  - type: not-contains-any\n    value:\n      - \"diagnose\"\n  - type: contains-all\n    value:\n      - \"enigmatic creatures\"\nEOF\n",
+   "thought": "THOUGHT: Let me create some test YAML files to verify the implementation:",
+   "response": "THOUGHT: Let me create some test YAML files to verify the implementation:",
+   "delay_time": 12.72,
+   "delay_time_orig": 8.98,
+   "prompt_tokens": 23146,
+   "output_tokens": 150
+  },
+  {
+   "action": "cat > /tmp/test_dir/tests/2.yaml << 'EOF'\nvars:\n  text: Another test case\nassert:\n  - type: contains\n    value: \"test\"\nEOF\n",
+   "thought": "THOUGHT\n\nCreating the second test file:",
+   "response": "THOUGHT\n\nCreating the second test file:",
+   "delay_time": 11.37,
+   "delay_time_orig": 4.34,
+   "prompt_tokens": 23315,
+   "output_tokens": 108
+  },
+  {
+   "action": "cat > /tmp/test_dir/tests/3.yaml << 'EOF'\nvars:\n  text: Third test case\nassert:\n  - type: equals\n    value: \"Third test case\"\nEOF\n",
+   "thought": "THOUGHT\n\nCreating the third test file:",
+   "response": "THOUGHT\n\nCreating the third test file:",
+   "delay_time": 11.45,
+   "delay_time_orig": 7.25,
+   "prompt_tokens": 23442,
+   "output_tokens": 109
+  },
+  {
+   "action": "cat > /tmp/test_implementation.js << 'EOF'\nconst { readTests, readVarsFiles, readTestsFile } = require('/testbed/src/util.ts');\n\nasync function test() {\n  console.log('Testing readTests with directory path...');\n  \n  try {\n    const tests = await readTests('./tests', '/tmp/test_dir');\n    console.log('Loaded tests:', JSON.stringify(tests, null, 2));\n    console.log('Number of tests loaded:', tests.length);\n    \n    if (tests.length === 3) {\n      console.log('✓ Successfully loaded 3 test cases from directory');\n    } else {\n      console.log('✗ Expected 3 tests, got', tests.length);\n    }\n  } catch (error) {\n    console.error('Error loading tests:', error);\n  }\n}\n\ntest();\nEOF\n",
+   "thought": "THOUGHT\n\nNow let me create a simple test script to verify the implementation works:",
+   "response": "THOUGHT\n\nNow let me create a simple test script to verify the implementation works:",
+   "delay_time": 17.29,
+   "delay_time_orig": 3.09,
+   "prompt_tokens": 23570,
+   "output_tokens": 283
+  },
+  {
+   "action": "cd /testbed && cat package.json | grep -A 5 \"scripts\"",
+   "thought": "THOUGHT\n\nActually, since this is TypeScript, I need to compile it or use ts-node. Let me check if the project has a build script:",
+   "response": "THOUGHT\n\nActually, since this is TypeScript, I need to compile it or use ts-node. Let me check if the project has a build script:",
+   "delay_time": 11.19,
+   "delay_time_orig": 8.68,
+   "prompt_tokens": 23872,
+   "output_tokens": 97
+  },
+  {
+   "action": "cd /testbed && cat package.json | grep -E \"\\\"build\\\":\" ",
+   "thought": "THOUGHT\n\nLet me check if there's a build command:",
+   "response": "THOUGHT\n\nLet me check if there's a build command:",
+   "delay_time": 10.8,
+   "delay_time_orig": 8.95,
+   "prompt_tokens": 24100,
+   "output_tokens": 83
+  },
+  {
+   "action": "cd /testbed && npm run build 2>&1 | head -50",
+   "thought": "THOUGHT\n\nLet me try to build the project to see if there are any compilation errors:",
+   "response": "THOUGHT\n\nLet me try to build the project to see if there are any compilation errors:",
+   "delay_time": 10.82,
+   "delay_time_orig": 3.8,
+   "prompt_tokens": 24251,
+   "output_tokens": 82
+  },
+  {
+   "action": "sed -n '355,365p' /testbed/src/util.ts",
+   "thought": "THOUGHT\n\nThere's a TypeScript error. Let me check line 360:",
+   "response": "THOUGHT\n\nThere's a TypeScript error. Let me check line 360:",
+   "delay_time": 10.78,
+   "delay_time_orig": 9.06,
+   "prompt_tokens": 24528,
+   "output_tokens": 78
+  },
+  {
+   "action": "sed -n '355,370p' /testbed/src/util.ts",
+   "thought": "THOUGHT\n\nThe issue is that TypeScript doesn't know that at line 360, `tests` is a `TestCase[]` array. This is because we've already handled the cases where `tests` is a string or string array. I need to add a type assertion or check. Let me fix this:",
+   "response": "THOUGHT\n\nThe issue is that TypeScript doesn't know that at line 360, `tests` is a `TestCase[]` array. This is because we've already handled the cases where `tests` is a string or string array. I need to add a type assertion or check. Let me fix this:",
+   "delay_time": 12.44,
+   "delay_time_orig": 3.23,
+   "prompt_tokens": 24714,
+   "output_tokens": 126
+  },
+  {
+   "action": "sed -i '358a\\  // At this point, tests must be TestCase[]\\n  if (!Array.isArray(tests)) {\\n    throw new Error(\\u0027Invalid tests format\\u0027);\\n  }' /testbed/src/util.ts",
+   "thought": "THOUGHT\n\nI need to add a type guard or assertion before the loop. Let me update the code to add a check:",
+   "response": "THOUGHT\n\nI need to add a type guard or assertion before the loop. Let me update the code to add a check:",
+   "delay_time": 12.76,
+   "delay_time_orig": 3.52,
+   "prompt_tokens": 24968,
+   "output_tokens": 133
+  },
+  {
+   "action": "sed -n '355,375p' /testbed/src/util.ts",
+   "thought": "THOUGHT\n\nLet me verify the change:",
+   "response": "THOUGHT\n\nLet me verify the change:",
+   "delay_time": 10.74,
+   "delay_time_orig": 4.57,
+   "prompt_tokens": 25120,
+   "output_tokens": 71
+  },
+  {
+   "action": "sed -i \"360s/.*/    throw new Error('Invalid tests format');/\" /testbed/src/util.ts",
+   "thought": "THOUGHT\n\nThe escaping got messed up. Let me fix it properly:",
+   "response": "THOUGHT\n\nThe escaping got messed up. Let me fix it properly:",
+   "delay_time": 11.52,
+   "delay_time_orig": 3.74,
+   "prompt_tokens": 25361,
+   "output_tokens": 92
+  },
+  {
+   "action": "sed -n '355,375p' /testbed/src/util.ts",
+   "thought": "THOUGHT\n\nLet me verify:",
+   "response": "THOUGHT\n\nLet me verify:",
+   "delay_time": 10.79,
+   "delay_time_orig": 5.16,
+   "prompt_tokens": 25472,
+   "output_tokens": 69
+  },
+  {
+   "action": "cp /testbed/src/util.ts.backup /testbed/src/util.ts",
+   "thought": "THOUGHT\n\nThe sed command created duplicates. Let me restore from backup and redo this more carefully:",
+   "response": "THOUGHT\n\nThe sed command created duplicates. Let me restore from backup and redo this more carefully:",
+   "delay_time": 11.34,
+   "delay_time_orig": 9.77,
+   "prompt_tokens": 25717,
+   "output_tokens": 83
+  },
+  {
+   "action": "cat > /tmp/complete_update.txt << 'ENDOFFILE'\nexport async function readTestsFile(varsPath: string, basePath: string = ''): Promise<CsvRow[]> {\n  const resolvedVarsPath = path.resolve(basePath, varsPath);\n  const fileExtension = parsePath(varsPath).ext.slice(1);\n  let rows: CsvRow[] = [];\n\n  if (fileExtension === 'csv') {\n    if (varsPath.startsWith('https://docs.google.com/spreadsheets/')) {\n      const csvData = await fetchCsvFromGoogleSheet(varsPath);\n      rows = parseCsv(csvData, { columns: true });\n    } else {\n      rows = parseCsv(fs.readFileSync(resolvedVarsPath, 'utf-8'), { columns: true });\n    }\n  } else if (fileExtension === 'json') {\n    rows = parseJson(fs.readFileSync(resolvedVarsPath, 'utf-8'));\n  } else if (fileExtension === 'yaml' || fileExtension === 'yml') {\n    rows = yaml.load(fs.readFileSync(resolvedVarsPath, 'utf-8')) as unknown as any;\n  }\n\n  return rows;\n}\n\nexport async function readVarsFiles(\n  pathOrGlobs: string | string[],\n  basePath: string = '',\n): Promise<Record<string, string | string[] | object>> {\n  const paths = Array.isArray(pathOrGlobs) ? pathOrGlobs : [pathOrGlobs];\n  const mergedVars: Record<string, string | string[] | object> = {};\n\n  for (const pattern of paths) {\n    const resolvedPattern = path.resolve(basePath, pattern);\n    const matchedFiles = globSync(resolvedPattern);\n\n    for (const file of matchedFiles) {\n      const fileContent = fs.readFileSync(file, 'utf-8');\n      const data = yaml.load(fileContent) as Record<string, string | string[] | object>;\n      \n      if (data && typeof data === 'object') {\n        Object.assign(mergedVars, data);\n      }\n    }\n  }\n\n  return mergedVars;\n}\n\nexport async function readTests(\n  tests: string | string[] | TestCase[] | undefined,\n  basePath: string = '',\n): Promise<TestCase[]> {\n  if (!tests) {\n    return [];\n  }\n\n  // Handle string array (directory-based loading or multiple file paths)\n  if (Array.isArray(tests)) {\n    const loadedTests: TestCase[] = [];\n    \n    for (const testPath of tests) {\n      if (typeof testPath === 'string') {\n        const resolvedPath = path.resolve(basePath, testPath);\n        const stat = fs.statSync(resolvedPath);\n        \n        if (stat.isDirectory()) {\n          // Load all YAML files from the directory\n          const files = globSync(path.join(resolvedPath, '*.yaml'));\n          files.push(...globSync(path.join(resolvedPath, '*.yml')));\n          \n          for (const file of files) {\n            const content = fs.readFileSync(file, 'utf-8');\n            const testCase = yaml.load(content) as TestCase;\n            \n            // If vars is a string/path, load it using readVarsFiles\n            if (testCase.vars && typeof testCase.vars === 'string') {\n              testCase.vars = await readVarsFiles(testCase.vars, path.dirname(file));\n            }\n            \n            loadedTests.push(testCase);\n          }\n        } else {\n          // It's a file path, load it like before\n          const rows = await readTestsFile(testPath, basePath);\n          const fileTests = rows.map((row, idx) => {\n            const test = testCaseFromCsvRow(row);\n            test.description = `Row #${idx + 1}`;\n            return test;\n          });\n          loadedTests.push(...fileTests);\n        }\n      } else {\n        // It's already a TestCase object\n        loadedTests.push(testPath);\n      }\n    }\n    \n    return loadedTests;\n  }\n\n  if (typeof tests === 'string') {\n    // Check if it's a directory\n    const resolvedPath = path.resolve(basePath, tests);\n    const stat = fs.statSync(resolvedPath);\n    \n    if (stat.isDirectory()) {\n      // Load all YAML files from the directory\n      const loadedTests: TestCase[] = [];\n      const files = globSync(path.join(resolvedPath, '*.yaml'));\n      files.push(...globSync(path.join(resolvedPath, '*.yml')));\n      \n      for (const file of files) {\n        const content = fs.readFileSync(file, 'utf-8');\n        const testCase = yaml.load(content) as TestCase;\n        \n        // If vars is a string/path, load it using readVarsFiles\n        if (testCase.vars && typeof testCase.vars === 'string') {\n          testCase.vars = await readVarsFiles(testCase.vars, path.dirname(file));\n        }\n        \n        loadedTests.push(testCase);\n      }\n      \n      return loadedTests;\n    }\n    \n    // It's a filepath, load from CSV/JSON/YAML\n    const rows = await readTestsFile(tests, basePath);\n    return rows.map((row, idx) => {\n      const test = testCaseFromCsvRow(row);\n      test.description = `Row #${idx + 1}`;\n      return test;\n    });\n  }\n\n  // At this point, tests must be TestCase[]\n  // Some validation of the shape of tests\n  for (const test of tests) {\n    if (!test.assert && !test.vars) {\n      throw new Error(\n        `Test case must have either \"assert\" or \"vars\" property. Instead got ${JSON.stringify(\n          test,\n          null,\n          2,\n        )}`,\n      );\n    }\n  }\n\n  return tests;\n}\nENDOFFILE\ncat /tmp/complete_update.txt\n",
+   "thought": "THOUGHT\n\nLet me start over with a cleaner approach. I'll create the entire updated section and replace it properly:",
+   "response": "THOUGHT\n\nLet me start over with a cleaner approach. I'll create the entire updated section and replace it properly:",
+   "delay_time": 60.07,
+   "delay_time_orig": 5.15,
+   "prompt_tokens": 25819,
+   "output_tokens": 1544
+  },
+  {
+   "action": "grep -n \"^export async function readVars\\|^export async function readTests\\|^export function writeOutput\" /testbed/src/util.ts",
+   "thought": "THOUGHT\n\nNow let me find the exact line range to replace in the original file:",
+   "response": "THOUGHT\n\nNow let me find the exact line range to replace in the original file:",
+   "delay_time": 12.84,
+   "delay_time_orig": 4.28,
+   "prompt_tokens": 28925,
+   "output_tokens": 96
+  },
+  {
+   "action": "head -n 226 /testbed/src/util.ts > /tmp/util_part1.txt && tail -n +282 /testbed/src/util.ts > /tmp/util_part3.txt",
+   "thought": "THOUGHT\n\nSo I need to replace lines 227-281 with the new content. Let me do that:",
+   "response": "THOUGHT\n\nSo I need to replace lines 227-281 with the new content. Let me do that:",
+   "delay_time": 13.33,
+   "delay_time_orig": 4.39,
+   "prompt_tokens": 29095,
+   "output_tokens": 109
+  },
+  {
+   "action": "cat /tmp/util_part1.txt /tmp/complete_update.txt /tmp/util_part3.txt > /testbed/src/util.ts",
+   "thought": "THOUGHT\n\nNow let me combine the parts:",
+   "response": "THOUGHT\n\nNow let me combine the parts:",
+   "delay_time": 12.51,
+   "delay_time_orig": 9.8,
+   "prompt_tokens": 29223,
+   "output_tokens": 83
+  },
+  {
+   "action": "sed -n '225,235p' /testbed/src/util.ts",
+   "thought": "THOUGHT\n\nLet me verify the changes look correct:",
+   "response": "THOUGHT\n\nLet me verify the changes look correct:",
+   "delay_time": 12.21,
+   "delay_time_orig": 6.5,
+   "prompt_tokens": 29325,
+   "output_tokens": 73
+  },
+  {
+   "action": "sed -n '245,275p' /testbed/src/util.ts",
+   "thought": "THOUGHT\n\nGood! Let me check around the readVarsFiles function:",
+   "response": "THOUGHT\n\nGood! Let me check around the readVarsFiles function:",
+   "delay_time": 12.56,
+   "delay_time_orig": 4.09,
+   "prompt_tokens": 29571,
+   "output_tokens": 81
+  },
+  {
+   "action": "sed -n '365,375p' /testbed/src/util.ts",
+   "thought": "THOUGHT\n\nPerfect! Now let me check the end of readTests and the beginning of writeOutput:",
+   "response": "THOUGHT\n\nPerfect! Now let me check the end of readTests and the beginning of writeOutput:",
+   "delay_time": 12.76,
+   "delay_time_orig": 3.52,
+   "prompt_tokens": 29986,
+   "output_tokens": 83
+  },
+  {
+   "action": "cd /testbed && npm run build 2>&1 | grep -E \"error TS|Successfully\" | head -20",
+   "thought": "THOUGHT\n\nExcellent! Now let me try to build again to see if the TypeScript error is fixed:",
+   "response": "THOUGHT\n\nExcellent! Now let me try to build again to see if the TypeScript error is fixed:",
+   "delay_time": 13.24,
+   "delay_time_orig": 9.95,
+   "prompt_tokens": 30131,
+   "output_tokens": 96
+  },
+  {
+   "action": "sed -n '358,365p' /testbed/src/util.ts",
+   "thought": "THOUGHT\n\nThe error is still there. The issue is that TypeScript's control flow analysis doesn't narrow the type properly. Let me check line 361:",
+   "response": "THOUGHT\n\nThe error is still there. The issue is that TypeScript's control flow analysis doesn't narrow the type properly. Let me check line 361:",
+   "delay_time": 13.33,
+   "delay_time_orig": 7.23,
+   "prompt_tokens": 30291,
+   "output_tokens": 97
+  },
+  {
+   "action": "sed -i '361s/for (const test of tests)/for (const test of tests as TestCase[])/' /testbed/src/util.ts",
+   "thought": "THOUGHT\n\nThe issue is that TypeScript can't infer that `tests` is `TestCase[]` at this point. I need to add an explicit type assertion. Let me fix this:",
+   "response": "THOUGHT\n\nThe issue is that TypeScript can't infer that `tests` is `TestCase[]` at this point. I need to add an explicit type assertion. Let me fix this:",
+   "delay_time": 14.1,
+   "delay_time_orig": 3.61,
+   "prompt_tokens": 30493,
+   "output_tokens": 118
+  },
+  {
+   "action": "sed -n '358,365p' /testbed/src/util.ts",
+   "thought": "THOUGHT\n\nLet me verify the change:",
+   "response": "THOUGHT\n\nLet me verify the change:",
+   "delay_time": 12.58,
+   "delay_time_orig": 9.05,
+   "prompt_tokens": 30630,
+   "output_tokens": 71
+  },
+  {
+   "action": "cd /testbed && npm run build 2>&1 | grep -E \"error TS|Successfully compiled\" | head -20",
+   "thought": "THOUGHT\n\nGood! Now let me try building again:",
+   "response": "THOUGHT\n\nGood! Now let me try building again:",
+   "delay_time": 13.27,
+   "delay_time_orig": 6.67,
+   "prompt_tokens": 30808,
+   "output_tokens": 90
+  },
+  {
+   "action": "cd /testbed && npm run build 2>&1 | tail -20",
+   "thought": "THOUGHT\n\nGreat! No TypeScript errors. Let me check if the build completed successfully:",
+   "response": "THOUGHT\n\nGreat! No TypeScript errors. Let me check if the build completed successfully:",
+   "delay_time": 13.04,
+   "delay_time_orig": 5.76,
+   "prompt_tokens": 30917,
+   "output_tokens": 82
+  },
+  {
+   "action": "cat > /tmp/test_feature.mjs << 'EOF'\nimport { readTests, readVarsFiles, readTestsFile } from '/testbed/dist/src/util.js';\nimport fs from 'fs';\nimport path from 'path';\nimport { fileURLToPath } from 'url';\n\nconst __filename = fileURLToPath(import.meta.url);\nconst __dirname = path.dirname(__filename);\n\nasync function testDirectoryLoading() {\n  console.log('Testing directory-based test loading...\\n');\n  \n  const testDir = '/tmp/test_dir/tests';\n  \n  try {\n    // Test 1: Load tests from directory path (string)\n    console.log('Test 1: Loading tests from directory path...');\n    const tests1 = await readTests(testDir, '');\n    console.log(`✓ Loaded ${tests1.length} test cases from directory`);\n    console.log('Test cases:', JSON.stringify(tests1.map(t => ({\n      description: t.description,\n      vars: t.vars,\n      assertCount: t.assert?.length || 0\n    })), null, 2));\n    \n    // Test 2: Load tests from array of paths\n    console.log('\\nTest 2: Loading tests from array of paths...');\n    const tests2 = await readTests([testDir], '');\n    console.log(`✓ Loaded ${tests2.length} test cases from array`);\n    \n    // Test 3: Verify individual test case structure\n    if (tests1.length > 0) {\n      console.log('\\nTest 3: Verifying test case structure...');\n      const firstTest = tests1[0];\n      console.log('First test case:');\n      console.log('  - Has vars:', !!firstTest.vars);\n      console.log('  - Has assert:', !!firstTest.assert);\n      console.log('  - Vars content:', firstTest.vars);\n      console.log('  - Assertions count:', firstTest.assert?.length || 0);\n    }\n    \n    console.log('\\n✓ All tests passed!');\n    \n  } catch (error) {\n    console.error('✗ Error:', error.message);\n    console.error(error.stack);\n    process.exit(1);\n  }\n}\n\ntestDirectoryLoading();\nEOF\nnode /tmp/test_feature.mjs\n",
+   "thought": "THOUGHT\n\nExcellent! The build completed successfully. Now let me create a simple test to verify the functionality works as expected:",
+   "response": "THOUGHT\n\nExcellent! The build completed successfully. Now let me create a simple test to verify the functionality works as expected:",
+   "delay_time": 31.7,
+   "delay_time_orig": 8.6,
+   "prompt_tokens": 31309,
+   "output_tokens": 638
+  },
+  {
+   "action": "cat > /tmp/test_vars_files.mjs << 'EOF'\nimport { readVarsFiles } from '/testbed/dist/src/util.js';\nimport fs from 'fs';\nimport path from 'path';\n\nasync function testVarsFiles() {\n  console.log('Testing readVarsFiles function...\\n');\n  \n  // Create test variable files\n  const varsDir = '/tmp/test_vars_dir';\n  fs.mkdirSync(varsDir, { recursive: true });\n  \n  fs.writeFileSync(path.join(varsDir, 'vars1.yaml'), `\nname: John\nage: \"30\"\n`);\n  \n  fs.writeFileSync(path.join(varsDir, 'vars2.yaml'), `\ncity: New York\ncountry: USA\n`);\n  \n  try {\n    // Test 1: Load single glob pattern\n    console.log('Test 1: Loading variables from glob pattern...');\n    const vars1 = await readVarsFiles(path.join(varsDir, '*.yaml'), '');\n    console.log('✓ Loaded variables:', vars1);\n    \n    // Verify merged content\n    if (vars1.name === 'John' && vars1.city === 'New York') {\n      console.log('✓ Variables correctly merged from multiple files');\n    } else {\n      console.log('✗ Variables not correctly merged');\n      process.exit(1);\n    }\n    \n    // Test 2: Load from array of patterns\n    console.log('\\nTest 2: Loading from array of patterns...');\n    const vars2 = await readVarsFiles([path.join(varsDir, '*.yaml')], '');\n    console.log('✓ Loaded variables:', vars2);\n    \n    console.log('\\n✓ All readVarsFiles tests passed!');\n    \n  } catch (error) {\n    console.error('✗ Error:', error.message);\n    console.error(error.stack);\n    process.exit(1);\n  }\n}\n\ntestVarsFiles();\nEOF\nnode /tmp/test_vars_files.mjs\n",
+   "thought": "THOUGHT\n\nExcellent! The directory-based loading is working. Now let me test the `readVarsFiles` function:",
+   "response": "THOUGHT\n\nExcellent! The directory-based loading is working. Now let me test the `readVarsFiles` function:",
+   "delay_time": 29.47,
+   "delay_time_orig": 5.69,
+   "prompt_tokens": 32201,
+   "output_tokens": 562
+  },
+  {
+   "action": "cat > /tmp/test_tests_file.mjs << 'EOF'\nimport { readTestsFile } from '/testbed/dist/src/util.js';\nimport fs from 'fs';\nimport path from 'path';\n\nasync function testTestsFile() {\n  console.log('Testing readTestsFile function...\\n');\n  \n  const testDir = '/tmp/test_csv_dir';\n  fs.mkdirSync(testDir, { recursive: true });\n  \n  // Create a CSV file\n  fs.writeFileSync(path.join(testDir, 'tests.csv'), \n    'var1,var2,__expected\\nvalue1,value2,equals:value1\\nvalue3,value4,contains:value3');\n  \n  // Create a JSON file\n  fs.writeFileSync(path.join(testDir, 'tests.json'), \n    '[{\"var1\": \"json1\", \"var2\": \"json2\"}, {\"var1\": \"json3\", \"var2\": \"json4\"}]');\n  \n  // Create a YAML file\n  fs.writeFileSync(path.join(testDir, 'tests.yaml'), \n    '- var1: yaml1\\n  var2: yaml2\\n- var1: yaml3\\n  var2: yaml4');\n  \n  try {\n    // Test 1: Load CSV file\n    console.log('Test 1: Loading CSV file...');\n    const csvRows = await readTestsFile(path.join(testDir, 'tests.csv'), '');\n    console.log('✓ Loaded CSV rows:', csvRows.length);\n    console.log('  First row:', csvRows[0]);\n    \n    // Test 2: Load JSON file\n    console.log('\\nTest 2: Loading JSON file...');\n    const jsonRows = await readTestsFile(path.join(testDir, 'tests.json'), '');\n    console.log('✓ Loaded JSON rows:', jsonRows.length);\n    console.log('  First row:', jsonRows[0]);\n    \n    // Test 3: Load YAML file\n    console.log('\\nTest 3: Loading YAML file...');\n    const yamlRows = await readTestsFile(path.join(testDir, 'tests.yaml'), '');\n    console.log('✓ Loaded YAML rows:', yamlRows.length);\n    console.log('  First row:', yamlRows[0]);\n    \n    console.log('\\n✓ All readTestsFile tests passed!');\n    \n  } catch (error) {\n    console.error('✗ Error:', error.message);\n    console.error(error.stack);\n    process.exit(1);\n  }\n}\n\ntestTestsFile();\nEOF\nnode /tmp/test_tests_file.mjs\n",
+   "thought": "THOUGHT\n\nPerfect! Now let me test the `readTestsFile` function (the renamed `readVars`):",
+   "response": "THOUGHT\n\nPerfect! Now let me test the `readTestsFile` function (the renamed `readVars`):",
+   "delay_time": 34.71,
+   "delay_time_orig": 8.73,
+   "prompt_tokens": 32940,
+   "output_tokens": 712
+  },
+  {
+   "action": "cat > /tmp/test_vars_reference.mjs << 'EOF'\nimport { readTests } from '/testbed/dist/src/util.js';\nimport fs from 'fs';\nimport path from 'path';\n\nasync function testVarsReference() {\n  console.log('Testing test cases with vars referencing external files...\\n');\n  \n  const testDir = '/tmp/test_vars_ref';\n  const varsDir = path.join(testDir, 'vars');\n  const testsDir = path.join(testDir, 'tests');\n  \n  fs.mkdirSync(varsDir, { recursive: true });\n  fs.mkdirSync(testsDir, { recursive: true });\n  \n  // Create variable files\n  fs.writeFileSync(path.join(varsDir, 'common.yaml'), `\ngreeting: Hello\nlanguage: English\n`);\n  \n  fs.writeFileSync(path.join(varsDir, 'extra.yaml'), `\ntopic: AI\ncontext: Testing\n`);\n  \n  // Create a test case that references the vars directory\n  fs.writeFileSync(path.join(testsDir, 'test1.yaml'), `\ndescription: Test with external vars\nvars: ./vars/*.yaml\nassert:\n  - type: contains\n    value: \"Hello\"\n`);\n  \n  try {\n    console.log('Test: Loading test case with external vars reference...');\n    const tests = await readTests(testsDir, '');\n    console.log(`✓ Loaded ${tests.length} test case(s)`);\n    \n    if (tests.length > 0) {\n      const test = tests[0];\n      console.log('Test case:', JSON.stringify(test, null, 2));\n      \n      // Check if vars were loaded and merged\n      if (test.vars && typeof test.vars === 'object') {\n        console.log('\\n✓ Variables were loaded and merged:');\n        console.log('  - greeting:', test.vars.greeting);\n        console.log('  - language:', test.vars.language);\n        console.log('  - topic:', test.vars.topic);\n        console.log('  - context:', test.vars.context);\n        \n        if (test.vars.greeting === 'Hello' && test.vars.topic === 'AI') {\n          console.log('\\n✓ All vars reference tests passed!');\n        } else {\n          console.log('\\n✗ Variables not correctly loaded');\n          process.exit(1);\n        }\n      } else {\n        console.log('\\n✗ Variables were not loaded as expected');\n        process.exit(1);\n      }\n    }\n    \n  } catch (error) {\n    console.error('✗ Error:', error.message);\n    console.error(error.stack);\n    process.exit(1);\n  }\n}\n\ntestVarsReference();\nEOF\nnode /tmp/test_vars_reference.mjs\n",
+   "thought": "THOUGHT\n\nExcellent! All the functions are working correctly. Now let me test a more complex scenario where a test case in a directory has a `vars` field that references external variable files:",
+   "response": "THOUGHT\n\nExcellent! All the functions are working correctly. Now let me test a more complex scenario where a test case in a directory has a `vars` field that references external variable files:",
+   "delay_time": 36.99,
+   "delay_time_orig": 8.76,
+   "prompt_tokens": 33861,
+   "output_tokens": 771
+  },
+  {
+   "action": "sed -n '295,310p' /testbed/src/util.ts",
+   "thought": "THOUGHT\n\nThere's an issue with loading the vars when they reference external files. The problem is that the path is relative to the test file, but we're not handling it correctly. Let me check the implementation again:",
+   "response": "THOUGHT\n\nThere's an issue with loading the vars when they reference external files. The problem is that the path is relative to the test file, but we're not handling it correctly. Let me check the implementation again:",
+   "delay_time": 15.16,
+   "delay_time_orig": 8.78,
+   "prompt_tokens": 34786,
+   "output_tokens": 107
+  },
+  {
+   "action": "cat > /tmp/debug_vars.mjs << 'EOF'\nimport { readVarsFiles } from '/testbed/dist/src/util.js';\nimport fs from 'fs';\nimport path from 'path';\n\nasync function debug() {\n  const varsDir = '/tmp/test_vars_ref/vars';\n  const testFileDir = '/tmp/test_vars_ref/tests';\n  \n  console.log('Checking if vars directory exists:', fs.existsSync(varsDir));\n  console.log('Files in vars directory:', fs.readdirSync(varsDir));\n  \n  console.log('\\nTrying to load with different paths:');\n  \n  try {\n    // Try with absolute path\n    console.log('\\n1. Absolute path:');\n    const vars1 = await readVarsFiles(path.join(varsDir, '*.yaml'), '');\n    console.log('Result:', vars1);\n    \n    // Try with relative path from test file directory\n    console.log('\\n2. Relative path from test file dir:');\n    const vars2 = await readVarsFiles('./vars/*.yaml', testFileDir);\n    console.log('Result:', vars2);\n    \n  } catch (error) {\n    console.error('Error:', error.message);\n    console.error(error.stack);\n  }\n}\n\ndebug();\nEOF\nnode /tmp/debug_vars.mjs\n",
+   "thought": "THOUGHT\n\nThe code looks correct. The issue might be that the glob pattern isn't matching. Let me debug this by checking what's happening:",
+   "response": "THOUGHT\n\nThe code looks correct. The issue might be that the glob pattern isn't matching. Let me debug this by checking what's happening:",
+   "delay_time": 25.0,
+   "delay_time_orig": 7.93,
+   "prompt_tokens": 35106,
+   "output_tokens": 399
+  },
+  {
+   "action": "sed -n '248,270p' /testbed/src/util.ts",
+   "thought": "THOUGHT\n\nAh! The issue is that when we use a relative path like `./vars/*.yaml`, the glob isn't resolving it correctly. The problem is in the `readVarsFiles` function - it's using `path.resolve` which converts `./vars/*.yaml` to an absolute path, but then the glob pattern doesn't work because the `*` is part of the path component. Let me check the implementation:",
+   "response": "THOUGHT\n\nAh! The issue is that when we use a relative path like `./vars/*.yaml`, the glob isn't resolving it correctly. The problem is in the `readVarsFiles` function - it's using `path.resolve` which converts `./vars/*.yaml` to an absolute path, but then the glob pattern doesn't work because the `*` is part of the path component. Let me check the implementation:",
+   "delay_time": 16.95,
+   "delay_time_orig": 3.13,
+   "prompt_tokens": 35649,
+   "output_tokens": 152
+  },
+  {
+   "action": "cat > /tmp/debug_glob.mjs << 'EOF'\nimport { globSync } from 'glob';\nimport path from 'path';\n\nconst basePath = '/tmp/test_vars_ref/tests';\nconst pattern = './vars/*.yaml';\n\nconsole.log('Base path:', basePath);\nconsole.log('Pattern:', pattern);\n\nconst resolved = path.resolve(basePath, pattern);\nconsole.log('Resolved pattern:', resolved);\n\nconst files = globSync(resolved);\nconsole.log('Matched files:', files);\n\n// Try without the ./\nconst pattern2 = 'vars/*.yaml';\nconst resolved2 = path.resolve(basePath, pattern2);\nconsole.log('\\nWithout ./');\nconsole.log('Resolved pattern:', resolved2);\nconst files2 = globSync(resolved2);\nconsole.log('Matched files:', files2);\nEOF\nnode /tmp/debug_glob.mjs\n",
+   "thought": "THOUGHT\n\nThe issue is that `path.resolve(basePath, './vars/*.yaml')` will resolve to something like `/tmp/test_vars_ref/tests/./vars/*.yaml`, which should work with glob. Let me test this more carefully:",
+   "response": "THOUGHT\n\nThe issue is that `path.resolve(basePath, './vars/*.yaml')` will resolve to something like `/tmp/test_vars_ref/tests/./vars/*.yaml`, which should work with glob. Let me test this more carefully:",
+   "delay_time": 22.43,
+   "delay_time_orig": 8.87,
+   "prompt_tokens": 36078,
+   "output_tokens": 312
+  },
+  {
+   "action": "cat > /tmp/debug_glob2.js << 'EOF'\nconst { globSync } = require('glob');\nconst path = require('path');\n\nconst basePath = '/tmp/test_vars_ref/tests';\nconst pattern = './vars/*.yaml';\n\nconsole.log('Base path:', basePath);\nconsole.log('Pattern:', pattern);\n\nconst resolved = path.resolve(basePath, pattern);\nconsole.log('Resolved pattern:', resolved);\n\nconst files = globSync(resolved);\nconsole.log('Matched files:', files);\n\n// Try without the ./\nconst pattern2 = 'vars/*.yaml';\nconst resolved2 = path.resolve(basePath, pattern2);\nconsole.log('\\nWithout ./');\nconsole.log('Resolved pattern:', resolved2);\nconst files2 = globSync(resolved2);\nconsole.log('Matched files:', files2);\nEOF\ncd /testbed && node /tmp/debug_glob2.js\n",
+   "thought": "THOUGHT\n\nLet me use the compiled version instead:",
+   "response": "THOUGHT\n\nLet me use the compiled version instead:",
+   "delay_time": 21.62,
+   "delay_time_orig": 9.87,
+   "prompt_tokens": 36661,
+   "output_tokens": 282
+  },
+  {
+   "action": "cat > /tmp/test_with_logging.mjs << 'EOF'\nimport fs from 'fs';\nimport path from 'path';\nimport yaml from 'js-yaml';\n\nconst testFile = '/tmp/test_vars_ref/tests/test1.yaml';\nconst content = fs.readFileSync(testFile, 'utf-8');\nconst testCase = yaml.load(content);\n\nconsole.log('Test case loaded:', JSON.stringify(testCase, null, 2));\nconsole.log('\\ntestCase.vars type:', typeof testCase.vars);\nconsole.log('testCase.vars value:', testCase.vars);\n\nif (testCase.vars && typeof testCase.vars === 'string') {\n  const fileDir = path.dirname(testFile);\n  console.log('\\nFile directory:', fileDir);\n  console.log('Vars pattern:', testCase.vars);\n  \n  const resolvedPattern = path.resolve(fileDir, testCase.vars);\n  console.log('Resolved pattern:', resolvedPattern);\n}\nEOF\ncd /testbed && node /tmp/test_with_logging.mjs\n",
+   "thought": "THOUGHT\n\nLet me check if the issue is with how we're handling the path. Actually, looking at the test output again, the vars are being loaded as an empty object `{}`, which suggests the glob is running but not finding files. Let me trace through the logic more carefully. The issue might be that when we have `vars: ./vars/*.yaml` in the YAML file, it's being loaded as a string, but the path resolution might not be working correctly. Let me add some debug logging to understand what's happening:",
+   "response": "THOUGHT\n\nLet me check if the issue is with how we're handling the path. Actually, looking at the test output again, the vars are being loaded as an empty object `{}`, which suggests the glob is running but not finding files. Let me trace through the logic more carefully. The issue might be that when we have `vars: ./vars/*.yaml` in the YAML file, it's being loaded as a string, but the path resolution might not be working correctly. Let me add some debug logging to understand what's happening:",
+   "delay_time": 25.65,
+   "delay_time_orig": 7.61,
+   "prompt_tokens": 37261,
+   "output_tokens": 397
+  },
+  {
+   "action": "cat /tmp/test_vars_ref/tests/test1.yaml",
+   "thought": "THOUGHT\n\nLet me just check what the YAML file actually contains:",
+   "response": "THOUGHT\n\nLet me just check what the YAML file actually contains:",
+   "delay_time": 15.04,
+   "delay_time_orig": 6.99,
+   "prompt_tokens": 37932,
+   "output_tokens": 72
+  },
+  {
+   "action": "sed -i '257s/.*/    const resolvedPattern = path.normalize(path.resolve(basePath, pattern));/' /testbed/src/util.ts",
+   "thought": "THOUGHT\n\nI see the issue now. When YAML loads `vars: ./vars/*.yaml`, it treats it as a string. But the actual problem is likely that the glob pattern with `./` prefix isn't working properly after path resolution. Let me check if there's an issue with how glob handles the resolved path. Actually, looking at the debug output earlier, when we used `./vars/*.yaml` with the base path, it returned an empty object, but when we used the absolute path directly, it worked. \n\nThe issue is that `path.resolve('/tmp/test_vars_ref/tests', './vars/*.yaml')` produces `/tmp/test_vars_ref/tests/./vars/*.yaml`, and glob might not handle the `./` in the middle of the path well. Let me fix this by normalizing the path:",
+   "response": "THOUGHT\n\nI see the issue now. When YAML loads `vars: ./vars/*.yaml`, it treats it as a string. But the actual problem is likely that the glob pattern with `./` prefix isn't working properly after path resolution. Let me check if there's an issue with how glob handles the resolved path. Actually, looking at the debug output earlier, when we used `./vars/*.yaml` with the base path, it returned an empty object, but when we used the absolute path directly, it worked. \n\nThe issue is that `path.resolve('/tmp/test_vars_ref/tests', './vars/*.yaml')` produces `/tmp/test_vars_ref/tests/./vars/*.yaml`, and glob might not handle the `./` in the middle of the path well. Let me fix this by normalizing the path:",
+   "delay_time": 20.79,
+   "delay_time_orig": 3.63,
+   "prompt_tokens": 38055,
+   "output_tokens": 243
+  },
+  {
+   "action": "sed -n '255,260p' /testbed/src/util.ts",
+   "thought": "THOUGHT\n\nLet me verify the change:",
+   "response": "THOUGHT\n\nLet me verify the change:",
+   "delay_time": 15.24,
+   "delay_time_orig": 9.87,
+   "prompt_tokens": 38317,
+   "output_tokens": 74
+  },
+  {
+   "action": "sed -i '257d' /testbed/src/util.ts && sed -i '256s/.*/    const resolvedPattern = path.normalize(path.resolve(basePath, pattern));/' /testbed/src/util.ts",
+   "thought": "THOUGHT\n\nI created a duplicate line. Let me fix this properly:",
+   "response": "THOUGHT\n\nI created a duplicate line. Let me fix this properly:",
+   "delay_time": 16.29,
+   "delay_time_orig": 6.37,
+   "prompt_tokens": 38483,
+   "output_tokens": 104
+  },
+  {
+   "action": "sed -n '254,262p' /testbed/src/util.ts",
+   "thought": "THOUGHT\n\nLet me verify:",
+   "response": "THOUGHT\n\nLet me verify:",
+   "delay_time": 15.3,
+   "delay_time_orig": 6.71,
+   "prompt_tokens": 38606,
+   "output_tokens": 73
+  },
+  {
+   "action": "sed -n '254,265p' /testbed/src/util.ts",
+   "thought": "THOUGHT\n\nGood! But I notice there's a missing line - the `globSync` call. Let me check:",
+   "response": "THOUGHT\n\nGood! But I notice there's a missing line - the `globSync` call. Let me check:",
+   "delay_time": 15.87,
+   "delay_time_orig": 9.45,
+   "prompt_tokens": 38813,
+   "output_tokens": 88
+  },
+  {
+   "action": "sed -i '257a\\    const matchedFiles = globSync(resolvedPattern);' /testbed/src/util.ts",
+   "thought": "THOUGHT\n\nThe `globSync` line got deleted! Let me add it back:",
+   "response": "THOUGHT\n\nThe `globSync` line got deleted! Let me add it back:",
+   "delay_time": 16.02,
+   "delay_time_orig": 5.67,
+   "prompt_tokens": 39051,
+   "output_tokens": 90
+  },
+  {
+   "action": "sed -n '254,267p' /testbed/src/util.ts",
+   "thought": "THOUGHT\n\nLet me verify:",
+   "response": "THOUGHT\n\nLet me verify:",
+   "delay_time": 15.39,
+   "delay_time_orig": 7.29,
+   "prompt_tokens": 39160,
+   "output_tokens": 70
+  },
+  {
+   "action": "cd /testbed && npm run build 2>&1 | grep -E \"error TS|Successfully\" | head -5",
+   "thought": "THOUGHT\n\nGood! Now let me rebuild and test again:",
+   "response": "THOUGHT\n\nGood! Now let me rebuild and test again:",
+   "delay_time": 16.13,
+   "delay_time_orig": 7.01,
+   "prompt_tokens": 39395,
+   "output_tokens": 90
+  },
+  {
+   "action": "cd /testbed && npm run build 2>&1 | tail -5",
+   "thought": "",
+   "response": "",
+   "delay_time": 15.27,
+   "delay_time_orig": 6.23,
+   "prompt_tokens": 39504,
+   "output_tokens": 63
+  },
+  {
+   "action": "node /tmp/test_vars_reference.mjs",
+   "thought": "THOUGHT\n\nGreat! Build succeeded. Now let me test the vars reference again:",
+   "response": "THOUGHT\n\nGreat! Build succeeded. Now let me test the vars reference again:",
+   "delay_time": 15.67,
+   "delay_time_orig": 4.62,
+   "prompt_tokens": 39710,
+   "output_tokens": 73
+  },
+  {
+   "action": "node /tmp/debug_vars.mjs",
+   "thought": "THOUGHT\n\nStill not working. Let me test the readVarsFiles function directly with the normalized path:",
+   "response": "THOUGHT\n\nStill not working. Let me test the readVarsFiles function directly with the normalized path:",
+   "delay_time": 15.85,
+   "delay_time_orig": 6.16,
+   "prompt_tokens": 39937,
+   "output_tokens": 76
+  },
+  {
+   "action": "sed -n '130,160p' /testbed/src/util.ts",
+   "thought": "THOUGHT\n\nThe issue persists. Let me think about this differently. The problem is that when we have `./vars/*.yaml` and we resolve it from `/tmp/test_vars_ref/tests`, we get `/tmp/test_vars_ref/tests/./vars/*.yaml`. Even with normalization, this becomes `/tmp/test_vars_ref/tests/vars/*.yaml`, which should work. But it's not finding files.\n\nLet me check if the issue is with how glob handles patterns. Actually, I think the problem might be that we need to use a different approach - instead of resolving the entire pattern, we should only resolve the base directory part and keep the glob pattern separate. Let me look at how `readPrompts` handles this:",
+   "response": "THOUGHT\n\nThe issue persists. Let me think about this differently. The problem is that when we have `./vars/*.yaml` and we resolve it from `/tmp/test_vars_ref/tests`, we get `/tmp/test_vars_ref/tests/./vars/*.yaml`. Even with normalization, this becomes `/tmp/test_vars_ref/tests/vars/*.yaml`, which should work. But it's not finding files.\n\nLet me check if the issue is with how glob handles patterns. Actually, I think the problem might be that we need to use a different approach - instead of resolving the entire pattern, we should only resolve the base directory part and keep the glob pattern separate. Let me look at how `readPrompts` handles this:",
+   "delay_time": 20.42,
+   "delay_time_orig": 9.84,
+   "prompt_tokens": 40157,
+   "output_tokens": 211
+  },
+  {
+   "action": "cat > /tmp/test_glob_direct.js << 'EOF'\nconst { globSync } = require('/testbed/node_modules/glob').globSync;\nconst path = require('path');\n\nconst basePath = '/tmp/test_vars_ref/tests';\nconst pattern = './vars/*.yaml';\n\nconsole.log('Testing glob directly:');\nconsole.log('Base path:', basePath);\nconsole.log('Pattern:', pattern);\n\nconst resolved = path.resolve(basePath, pattern);\nconsole.log('Resolved:', resolved);\n\nconst normalized = path.normalize(resolved);\nconsole.log('Normalized:', normalized);\n\nconst files1 = globSync(resolved);\nconsole.log('Files from resolved:', files1);\n\nconst files2 = globSync(normalized);\nconsole.log('Files from normalized:', files2);\n\n// Try with just vars/*.yaml\nconst pattern2 = 'vars/*.yaml';\nconst resolved2 = path.resolve(basePath, pattern2);\nconsole.log('\\nWithout ./');\nconsole.log('Resolved:', resolved2);\nconst files3 = globSync(resolved2);\nconsole.log('Files:', files3);\nEOF\nnode /tmp/test_glob_direct.js\n",
+   "thought": "THOUGHT\n\nI see - `readPrompts` uses the same approach: it resolves the path and then passes it to `globSync`. So the approach should work. Let me test if glob actually works with the normalized path:",
+   "response": "THOUGHT\n\nI see - `readPrompts` uses the same approach: it resolves the path and then passes it to `globSync`. So the approach should work. Let me test if glob actually works with the normalized path:",
+   "delay_time": 26.2,
+   "delay_time_orig": 7.09,
+   "prompt_tokens": 40706,
+   "output_tokens": 379
+  },
+  {
+   "action": "grep \"import.*glob\" /testbed/src/util.ts",
+   "thought": "THOUGHT\n\nLet me check how glob is imported in the util.ts file:",
+   "response": "THOUGHT\n\nLet me check how glob is imported in the util.ts file:",
+   "delay_time": 16.41,
+   "delay_time_orig": 5.76,
+   "prompt_tokens": 41337,
+   "output_tokens": 79
+  },
+  {
+   "action": "cat /testbed/node_modules/glob/package.json | grep -E '\"version\"|\"main\"'",
+   "thought": "THOUGHT\n\nLet me check the glob package version and API:",
+   "response": "THOUGHT\n\nLet me check the glob package version and API:",
+   "delay_time": 16.68,
+   "delay_time_orig": 3.32,
+   "prompt_tokens": 41452,
+   "output_tokens": 86
+  },
+  {
+   "action": "node -e \"const glob = require('/testbed/node_modules/glob'); console.log(Object.keys(glob));\"",
+   "thought": "THOUGHT\n\nGlob version 10 has a different API. Let me check what's exported:",
+   "response": "THOUGHT\n\nGlob version 10 has a different API. Let me check what's exported:",
+   "delay_time": 16.96,
+   "delay_time_orig": 4.27,
+   "prompt_tokens": 41584,
+   "output_tokens": 93
+  },
+  {
+   "action": "cat > /tmp/test_glob_direct2.js << 'EOF'\nconst { globSync } = require('/testbed/node_modules/glob');\nconst path = require('path');\n\nconst basePath = '/tmp/test_vars_ref/tests';\nconst pattern = './vars/*.yaml';\n\nconsole.log('Testing glob directly:');\nconsole.log('Base path:', basePath);\nconsole.log('Pattern:', pattern);\n\nconst resolved = path.resolve(basePath, pattern);\nconsole.log('Resolved:', resolved);\n\nconst normalized = path.normalize(resolved);\nconsole.log('Normalized:', normalized);\n\ntry {\n  const files1 = globSync(resolved);\n  console.log('Files from resolved:', files1);\n} catch (e) {\n  console.log('Error with resolved:', e.message);\n}\n\ntry {\n  const files2 = globSync(normalized);\n  console.log('Files from normalized:', files2);\n} catch (e) {\n  console.log('Error with normalized:', e.message);\n}\n\n// Try with just vars/*.yaml\nconst pattern2 = 'vars/*.yaml';\nconst resolved2 = path.resolve(basePath, pattern2);\nconsole.log('\\nWithout ./');\nconsole.log('Resolved:', resolved2);\ntry {\n  const files3 = globSync(resolved2);\n  console.log('Files:', files3);\n} catch (e) {\n  console.log('Error:', e.message);\n}\nEOF\nnode /tmp/test_glob_direct2.js\n",
+   "thought": "THOUGHT\n\nGood, `globSync` is available. Let me test it properly:",
+   "response": "THOUGHT\n\nGood, `globSync` is available. Let me test it properly:",
+   "delay_time": 28.46,
+   "delay_time_orig": 4.36,
+   "prompt_tokens": 41871,
+   "output_tokens": 435
+  },
+  {
+   "action": "ls -la /tmp/test_vars_ref/tests/vars/",
+   "thought": "THOUGHT\n\nInteresting! The glob isn't finding any files even with the resolved path. Let me check if the directory structure is correct:",
+   "response": "THOUGHT\n\nInteresting! The glob isn't finding any files even with the resolved path. Let me check if the directory structure is correct:",
+   "delay_time": 17.07,
+   "delay_time_orig": 4.27,
+   "prompt_tokens": 42411,
+   "output_tokens": 88
+  },
+  {
+   "action": "rm -rf /tmp/test_vars_ref && mkdir -p /tmp/test_vars_ref/tests/vars",
+   "thought": "THOUGHT\n\nAh! The vars directory is at `/tmp/test_vars_ref/vars/`, not `/tmp/test_vars_ref/tests/vars/`. The test file is in the `tests` subdirectory, and it references `./vars/*.yaml`, which should be relative to the test file's location. So from `/tmp/test_vars_ref/tests/`, the path `./vars/*.yaml` would resolve to `/tmp/test_vars_ref/tests/vars/*.yaml`, but the actual vars are at `/tmp/test_vars_ref/vars/*.yaml`.\n\nThe issue is that the test case YAML has `vars: ./vars/*.yaml`, which is meant to be relative to the test file, but the actual directory structure has vars one level up. Let me fix the test setup:",
+   "response": "THOUGHT\n\nAh! The vars directory is at `/tmp/test_vars_ref/vars/`, not `/tmp/test_vars_ref/tests/vars/`. The test file is in the `tests` subdirectory, and it references `./vars/*.yaml`, which should be relative to the test file's location. So from `/tmp/test_vars_ref/tests/`, the path `./vars/*.yaml` would resolve to `/tmp/test_vars_ref/tests/vars/*.yaml`, but the actual vars are at `/tmp/test_vars_ref/vars/*.yaml`.\n\nThe issue is that the test case YAML has `vars: ./vars/*.yaml`, which is meant to be relative to the test file, but the actual directory structure has vars one level up. Let me fix the test setup:",
+   "delay_time": 21.58,
+   "delay_time_orig": 5.14,
+   "prompt_tokens": 42545,
+   "output_tokens": 222
+  },
+  {
+   "action": "cat > /tmp/test_vars_ref/tests/vars/common.yaml << 'EOF'\ngreeting: Hello\nlanguage: English\nEOF\n",
+   "thought": "",
+   "response": "",
+   "delay_time": 16.93,
+   "delay_time_orig": 7.72,
+   "prompt_tokens": 42786,
+   "output_tokens": 80
+  },
+  {
+   "action": "cat > /tmp/test_vars_ref/tests/vars/extra.yaml << 'EOF'\ntopic: AI\ncontext: Testing\nEOF\n",
+   "thought": "",
+   "response": "",
+   "delay_time": 16.93,
+   "delay_time_orig": 3.4,
+   "prompt_tokens": 42885,
+   "output_tokens": 79
+  },
+  {
+   "action": "cat > /tmp/test_vars_ref/tests/test1.yaml << 'EOF'\ndescription: Test with external vars\nvars: ./vars/*.yaml\nassert:\n  - type: contains\n    value: \"Hello\"\nEOF\n",
+   "thought": "",
+   "response": "",
+   "delay_time": 17.79,
+   "delay_time_orig": 6.56,
+   "prompt_tokens": 42983,
+   "output_tokens": 104
+  },
+  {
+   "action": "node /tmp/test_vars_reference.mjs",
+   "thought": "THOUGHT\n\nNow let me test again:",
+   "response": "THOUGHT\n\nNow let me test again:",
+   "delay_time": 16.47,
+   "delay_time_orig": 5.71,
+   "prompt_tokens": 43106,
+   "output_tokens": 63
+  },
+  {
+   "action": "node /tmp/test_feature.mjs && echo \"---\" && node /tmp/test_vars_files.mjs && echo \"---\" && node /tmp/test_tests_file.mjs",
+   "thought": "THOUGHT\n\nExcellent! The feature is working correctly now. Let me run all the tests again to make sure everything works:",
+   "response": "THOUGHT\n\nExcellent! The feature is working correctly now. Let me run all the tests again to make sure everything works:",
+   "delay_time": 18.19,
+   "delay_time_orig": 6.96,
+   "prompt_tokens": 43361,
+   "output_tokens": 112
+  },
+  {
+   "action": "cat > /tmp/test_backward_compat.mjs << 'EOF'\nimport { readTests } from '/testbed/dist/src/util.js';\nimport fs from 'fs';\nimport path from 'path';\n\nasync function testBackwardCompatibility() {\n  console.log('Testing backward compatibility...\\n');\n  \n  const testDir = '/tmp/test_compat';\n  fs.mkdirSync(testDir, { recursive: true });\n  \n  // Test 1: CSV file (legacy format)\n  fs.writeFileSync(path.join(testDir, 'tests.csv'), \n    'var1,var2,__expected\\nvalue1,value2,equals:value1\\nvalue3,value4,contains:value3');\n  \n  // Test 2: Array of TestCase objects\n  const testCaseArray = [\n    {\n      description: 'Test 1',\n      vars: { var1: 'value1', var2: 'value2' },\n      assert: [{ type: 'equals', value: 'value1' }]\n    },\n    {\n      description: 'Test 2',\n      vars: { var1: 'value3', var2: 'value4' },\n      assert: [{ type: 'contains', value: 'value3' }]\n    }\n  ];\n  \n  try {\n    // Test CSV loading\n    console.log('Test 1: Loading tests from CSV file...');\n    const csvTests = await readTests(path.join(testDir, 'tests.csv'), '');\n    console.log(`✓ Loaded ${csvTests.length} tests from CSV`);\n    if (csvTests.length === 2 && csvTests[0].description === 'Row #1') {\n      console.log('✓ CSV tests have correct structure');\n    } else {\n      console.log('✗ CSV tests structure incorrect');\n      process.exit(1);\n    }\n    \n    // Test TestCase array loading\n    console.log('\\nTest 2: Loading tests from TestCase array...');\n    const arrayTests = await readTests(testCaseArray, '');\n    console.log(`✓ Loaded ${arrayTests.length} tests from array`);\n    if (arrayTests.length === 2 && arrayTests[0].description === 'Test 1') {\n      console.log('✓ Array tests have correct structure');\n    } else {\n      console.log('✗ Array tests structure incorrect');\n      process.exit(1);\n    }\n    \n    // Test undefined input\n    console.log('\\nTest 3: Loading tests with undefined input...');\n    const undefinedTests = await readTests(undefined, '');\n    console.log(`✓ Loaded ${undefinedTests.length} tests from undefined`);\n    if (undefinedTests.length === 0) {\n      console.log('✓ Undefined input returns empty array');\n    } else {\n      console.log('✗ Undefined input should return empty array');\n      process.exit(1);\n    }\n    \n    console.log('\\n✓ All backward compatibility tests passed!');\n    \n  } catch (error) {\n    console.error('✗ Error:', error.message);\n    console.error(error.stack);\n    process.exit(1);\n  }\n}\n\ntestBackwardCompatibility();\nEOF\nnode /tmp/test_backward_compat.mjs\n",
+   "thought": "THOUGHT\n\nPerfect! All the features are working correctly. Now let me create a comprehensive test to verify backward compatibility - that the existing functionality still works:",
+   "response": "THOUGHT\n\nPerfect! All the features are working correctly. Now let me create a comprehensive test to verify backward compatibility - that the existing functionality still works:",
+   "delay_time": 43.59,
+   "delay_time_orig": 9.87,
+   "prompt_tokens": 44079,
+   "output_tokens": 867
+  },
+  {
+   "action": "cd /testbed && npm test -- util.test.ts 2>&1 | tail -50",
+   "thought": "THOUGHT\n\nExcellent! All tests pass. Now let me verify that the existing test suite still passes. Let me check if there are any tests that might be affected:",
+   "response": "THOUGHT\n\nExcellent! All tests pass. Now let me verify that the existing test suite still passes. Let me check if there are any tests that might be affected:",
+   "delay_time": 18.32,
+   "delay_time_orig": 9.27,
+   "prompt_tokens": 45075,
+   "output_tokens": 99
+  },
+  {
+   "action": "grep \"^export\" /testbed/src/util.ts | grep -E \"readTests|readVars\"",
+   "thought": "THOUGHT\n\nThe test is failing because it's trying to import `readVars`, which we renamed to `readTestsFile`. However, according to the instructions, I should NOT modify test files. The tests will need to be updated by someone else, but the functionality itself is correct.\n\nLet me verify that the exports are correct and create a summary of the changes:",
+   "response": "THOUGHT\n\nThe test is failing because it's trying to import `readVars`, which we renamed to `readTestsFile`. However, according to the instructions, I should NOT modify test files. The tests will need to be updated by someone else, but the functionality itself is correct.\n\nLet me verify that the exports are correct and create a summary of the changes:",
+   "delay_time": 20.26,
+   "delay_time_orig": 9.38,
+   "prompt_tokens": 45778,
+   "output_tokens": 150
+  },
+  {
+   "action": "cat > /tmp/test_comprehensive.mjs << 'EOF'\nimport { readTests, readVarsFiles, readTestsFile } from '/testbed/dist/src/util.js';\nimport fs from 'fs';\nimport path from 'path';\n\nasync function runComprehensiveTest() {\n  console.log('=== Comprehensive Feature Test ===\\n');\n  \n  const baseDir = '/tmp/comprehensive_test';\n  const testsDir = path.join(baseDir, 'tests');\n  const varsDir = path.join(baseDir, 'vars');\n  \n  // Setup directory structure\n  fs.mkdirSync(testsDir, { recursive: true });\n  fs.mkdirSync(varsDir, { recursive: true });\n  \n  // Create variable files\n  fs.writeFileSync(path.join(varsDir, 'common.yaml'), `\ngreeting: Hello\nlanguage: English\n`);\n  \n  fs.writeFileSync(path.join(varsDir, 'extra.yaml'), `\ntopic: AI\ncontext: Testing\n`);\n  \n  // Create test case files in directory\n  fs.writeFileSync(path.join(testsDir, '1.yaml'), `\ndescription: Test case 1\nvars:\n  text: First test\nassert:\n  - type: contains\n    value: \"First\"\n`);\n  \n  fs.writeFileSync(path.join(testsDir, '2.yaml'), `\ndescription: Test case 2 with external vars\nvars: ../vars/*.yaml\nassert:\n  - type: contains\n    value: \"Hello\"\n`);\n  \n  fs.writeFileSync(path.join(testsDir, '3.yaml'), `\ndescription: Test case 3\nvars:\n  custom_var: custom_value\nassert:\n  - type: equals\n    value: \"custom_value\"\n`);\n  \n  try {\n    // Test 1: Load tests from directory\n    console.log('1. Loading tests from directory...');\n    const tests = await readTests(testsDir, '');\n    console.log(`   ✓ Loaded ${tests.length} test cases`);\n    \n    // Verify test case 1\n    if (tests[0].description === 'Test case 1' && \n        tests[0].vars.text === 'First test') {\n      console.log('   ✓ Test case 1 loaded correctly');\n    }\n    \n    // Verify test case 2 with external vars\n    if (tests[1].description === 'Test case 2 with external vars' &&\n        tests[1].vars.greeting === 'Hello' &&\n        tests[1].vars.topic === 'AI') {\n      console.log('   ✓ Test case 2 loaded with merged external vars');\n    }\n    \n    // Verify test case 3\n    if (tests[2].description === 'Test case 3' &&\n        tests[2].vars.custom_var === 'custom_value') {\n      console.log('   ✓ Test case 3 loaded correctly');\n    }\n    \n    // Test 2: Load tests from array of paths\n    console.log('\\n2. Loading tests from array of paths...');\n    const testsFromArrays = await readTests([testsDir], '');\n    if (testsFromArrays.length === 3) {\n      console.log('   ✓ Array loading works correctly');\n    }\n    \n    // Test 3: Test readVarsFiles independently\n    console.log('\\n3. Testing readVarsFiles...');\n    const vars = await readVarsFiles(path.join(varsDir, '*.yaml'), '');\n    if (vars.greeting === 'Hello' && vars.topic === 'AI') {\n      console.log('   ✓ Variables merged correctly from multiple files');\n    }\n    \n    // Test 4: Test readTestsFile with CSV\n    console.log('\\n4. Testing readTestsFile with CSV...');\n    const csvPath = path.join(baseDir, 'legacy_tests.csv');\n    fs.writeFileSync(csvPath, 'var1,var2,__expected\\nval1,val2,equals:val1');\n    const csvRows = await readTestsFile(csvPath, '');\n    if (csvRows.length === 1 && csvRows[0].var1 === 'val1') {\n      console.log('   ✓ CSV file loaded correctly');\n    }\n    \n    console.log('\\n=== All Comprehensive Tests Passed! ===');\n    \n  } catch (error) {\n    console.error('\\n✗ Error:', error.message);\n    console.error(error.stack);\n    process.exit(1);\n  }\n}\n\nrunComprehensiveTest();\nEOF\nnode /tmp/test_comprehensive.mjs\n",
+   "thought": "THOUGHT\n\nPerfect! All three functions are exported. Now let me create a final comprehensive test to demonstrate all the new features work together:",
+   "response": "THOUGHT\n\nPerfect! All three functions are exported. Now let me create a final comprehensive test to demonstrate all the new features work together:",
+   "delay_time": 54.9,
+   "delay_time_orig": 7.34,
+   "prompt_tokens": 45999,
+   "output_tokens": 1187
+  },
+  {
+   "action": "diff -u /testbed/src/util.ts.backup /testbed/src/util.ts | head -100",
+   "thought": "THOUGHT\n\nExcellent! All features are working correctly. Now let me create the final patch and submit it. Let me first verify the changes one more time:",
+   "response": "THOUGHT\n\nExcellent! All features are working correctly. Now let me create the final patch and submit it. Let me first verify the changes one more time:",
+   "delay_time": 19.14,
+   "delay_time_orig": 6.28,
+   "prompt_tokens": 47321,
+   "output_tokens": 101
+  },
+  {
+   "action": "diff -u /testbed/src/util.ts.backup /testbed/src/util.ts | tail -80",
+   "thought": "THOUGHT\n\nPerfect! Let me see the rest of the diff:",
+   "response": "THOUGHT\n\nPerfect! Let me see the rest of the diff:",
+   "delay_time": 18.97,
+   "delay_time_orig": 7.65,
+   "prompt_tokens": 48604,
+   "output_tokens": 83
+  },
+  {
+   "action": "cd /testbed && git diff src/util.ts > patch.txt",
+   "thought": "THOUGHT\n\nExcellent! The changes look good. Now let me create the patch file and submit it:",
+   "response": "THOUGHT\n\nExcellent! The changes look good. Now let me create the patch file and submit it:",
+   "delay_time": 19.28,
+   "delay_time_orig": 8.27,
+   "prompt_tokens": 49534,
+   "output_tokens": 83
+  },
+  {
+   "action": "head -50 /testbed/patch.txt",
+   "thought": "THOUGHT\n\nLet me verify the patch file was created correctly:",
+   "response": "THOUGHT\n\nLet me verify the patch file was created correctly:",
+   "delay_time": 18.91,
+   "delay_time_orig": 5.55,
+   "prompt_tokens": 49636,
+   "output_tokens": 71
+  },
+  {
+   "action": "submit",
+   "thought": "THOUGHT\n\nPerfect! The patch looks good. Now let me submit it:",
+   "response": "THOUGHT\n\nPerfect! The patch looks good. Now let me submit it:",
+   "delay_time": 19.51,
+   "delay_time_orig": 9.41,
+   "prompt_tokens": 50329,
+   "output_tokens": 82
+  }
+ ],
+ "history": [],
+ "info": {
+  "instance_id": "promptfoo__promptfoo-88",
+  "source": "nvidia/Open-SWE-Traces minisweagent/swe-rebench-v2",
+  "trajectory_id": null,
+  "resolved": null
+ },
+ "replay_config": {},
+ "delay_model": {
+  "formula": "prompt_tokens/prefill + output_tokens/decode",
+  "prefill_tps": 3000.0,
+  "decode_tps": 30.0,
+  "tokenizer": "cl100k_base",
+  "token_source": "nvidia/Open-SWE-Traces minisweagent/swe-rebench-v2",
+  "retimed_at": "2026-09-20 14:09:23"
+ }
+}

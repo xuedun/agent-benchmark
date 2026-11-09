@@ -1,0 +1,12 @@
+*.log
+__pycache__/
+/.idea/inspectionProfiles/profiles_settings.xml
+/.idea/inspectionProfiles/Project_Default.xml
+/.idea/.gitignore
+/.idea/agent-benchmark.iml
+/.idea/modules.xml
+/.idea/vcs.xml
+/.venv/
+*.py[cod]
+agent_replay/report/runs/
+.venv/
