@@ -1,0 +1,15 @@
+[project]
+name = "agent-benchmark"
+version = "0.1.0"
+description = "Agent workload benchmarks and replay tools"
+requires-python = ">=3.11"
+dependencies = [
+    "e2b==2.46.0",
+    "uvloop>=0.21.0,<1",
+    "openpyxl",
+    "matplotlib",
+    "Pillow",
+]
+
+[tool.uv]
+package = false
