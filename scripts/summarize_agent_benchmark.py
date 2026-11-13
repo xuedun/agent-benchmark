@@ -203,12 +203,13 @@ def load_vm_mem(path: Path) -> dict | None:
     }
 
 
-def vm_mem_section(vms: list[dict], out_dir: Path) -> None:
+def vm_mem_section(vm_mems: list[dict], out_dir: Path, per_vm: bool = False) -> None:
     rows = []
-    for i, vm in enumerate(vms, 1):
+    for vm in vm_mems:
         used = [p[1] / GB for p in vm["points"]]
         cache = [p[2] / GB for p in vm["points"]]
         rows.append({
+            "trial": vm.get("trial", ""),
             "task": vm["task"],
             "sandbox_id": vm["sandbox_id"],
             "samples": len(vm["points"]),
@@ -220,20 +221,20 @@ def vm_mem_section(vms: list[dict], out_dir: Path) -> None:
     csv_path = out_dir / "vm_mem_summary.csv"
     with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
         writer = csv.DictWriter(f, fieldnames=[
-            "task", "sandbox_id", "samples",
+            "trial", "task", "sandbox_id", "samples",
             "mem_used_avg_gb", "mem_used_peak_gb", "mem_cache_avg_gb", "mem_cache_peak_gb"])
         writer.writeheader()
         writer.writerows(rows)
-    print(f"  vm mem: {len(vms)} VMs, wrote: {csv_path}")
+    print(f"  vm mem: {len(vm_mems)} VMs, wrote: {csv_path}")
 
-    t0 = min(p[0] for vm in vms for p in vm["points"])
+    t0 = min(p[0] for vm in vm_mems for p in vm["points"])
     fig, (ax_used, ax_cache) = plt.subplots(2, 1, figsize=(14, 8), sharex=True)
-    for vm in vms:
+    for vm in vm_mems:
         xs = [p[0] - t0 for p in vm["points"]]
         ax_used.plot(xs, [p[1] / GB for p in vm["points"]], linewidth=0.9, alpha=0.65)
         ax_cache.plot(xs, [p[2] / GB for p in vm["points"]], linewidth=0.9, alpha=0.65)
     ax_used.set_ylabel("VM memUsed (GB)")
-    ax_used.set_title(f"Per-VM guest memory over time ({len(vms)} VMs, server-sampled)")
+    ax_used.set_title(f"Per-VM guest memory over time ({len(vm_mems)} VMs, server-sampled)")
     ax_used.grid(alpha=0.3)
     ax_cache.set_ylabel("VM memCache (GB)")
     ax_cache.set_xlabel("elapsed since first sample (s)")
@@ -244,8 +245,31 @@ def vm_mem_section(vms: list[dict], out_dir: Path) -> None:
     plt.close(fig)
     print(f"  wrote: {png_path}")
 
+    if per_vm:
+        plots_dir = out_dir / "vm_mem_plots"
+        plots_dir.mkdir(parents=True, exist_ok=True)
+        for vm in vm_mems:
+            xs = [p[0] - vm["points"][0][0] for p in vm["points"]]
+            fig, (ax_used, ax_cache) = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
+            ax_used.plot(xs, [p[1] / GB for p in vm["points"]], linewidth=1.2)
+            ax_used.set_ylabel("memUsed (GB)")
+            ax_used.set_title(
+                f"VM {vm['task']} sandbox={vm['sandbox_id'] or 'n/a'}"
+                + (f" trial={vm.get('trial', '')}" if vm.get("trial", ".") != "." else ""))
+            ax_used.grid(alpha=0.3)
+            ax_cache.plot(xs, [p[2] / GB for p in vm["points"]], linewidth=1.2, color="tab:orange")
+            ax_cache.set_ylabel("memCache (GB)")
+            ax_cache.set_xlabel("elapsed since VM first sample (s)")
+            ax_cache.grid(alpha=0.3)
+            fig.tight_layout()
+            trial = vm.get("trial", ".")
+            prefix = trial.replace("/", "_") + "_" if trial not in (".", "") else ""
+            fig.savefig(plots_dir / f"vm_mem_{prefix}{vm['task']}.png", dpi=130, bbox_inches="tight")
+            plt.close(fig)
+        print(f"  wrote {len(vm_mems)} per-VM PNGs: {plots_dir}/")
 
-def process_root(root: Path, out_dir: Path) -> None:
+
+def process_root(root: Path, out_dir: Path, per_vm: bool = False) -> None:
     task_files = discover(root, TASK_GLOBS)
     vms = [vm for f in task_files if (vm := load_vm(f)) is not None]
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -276,9 +300,14 @@ def process_root(root: Path, out_dir: Path) -> None:
             print("  WARN: no metrics plots produced")
 
     vm_mem_files = discover(root, VM_METRICS_GLOBS)
-    vm_mems = [vm for f in vm_mem_files if (vm := load_vm_mem(f)) is not None]
+    vm_mems = []
+    for f in vm_mem_files:
+        vm = load_vm_mem(f)
+        if vm is not None:
+            vm["trial"] = task_label(f, root)
+            vm_mems.append(vm)
     if vm_mems:
-        vm_mem_section(vm_mems, out_dir)
+        vm_mem_section(vm_mems, out_dir, per_vm=per_vm)
     else:
         print("  no per-VM sandbox-metrics.json found, skipping vm mem curves")
 
@@ -287,6 +316,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("roots", nargs="+", type=Path, help="run output dir or bench experiment root")
     parser.add_argument("--out", type=Path, default=None, help="output dir (default: <root>/processed)")
+    parser.add_argument("--per-vm", action="store_true",
+                        help="also write one PNG per VM under <out>/vm_mem_plots/")
     args = parser.parse_args()
     for root in args.roots:
         root = root.expanduser().resolve()
@@ -294,7 +325,7 @@ def main() -> int:
             print(f"ERROR: {root} is not a directory", file=sys.stderr)
             return 1
         out_dir = (args.out or root / "processed").expanduser().resolve()
-        process_root(root, out_dir)
+        process_root(root, out_dir, per_vm=args.per_vm)
     return 0
 
 
