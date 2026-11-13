@@ -389,6 +389,18 @@ class SandboxRunner:
             except Exception as exc:
                 # Preserve the exception, but never let it skip sandbox cleanup.
                 write_error = exc
+            if self.sandbox_id and not self.options.mock:
+                try:
+                    from .sandbox_metrics import fetch_sandbox_metrics, write_sandbox_metrics
+
+                    samples = fetch_sandbox_metrics(self.sandbox_id, timeout_s=10.0)
+                    if write_sandbox_metrics(self.output_dir, self.sandbox_id, samples):
+                        self._event(
+                            "info",
+                            f"Collected sandbox metrics sandbox={self.sandbox_id} samples={len(samples)}",
+                        )
+                except Exception as exc:
+                    self._event("warning", f"Sandbox metrics collection failed: {exc!r}")
             cleanup_task = asyncio.create_task(self._cleanup())
             try:
                 await asyncio.shield(cleanup_task)
