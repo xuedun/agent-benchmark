@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 import time
 import uuid
@@ -389,7 +390,11 @@ class SandboxRunner:
             except Exception as exc:
                 # Preserve the exception, but never let it skip sandbox cleanup.
                 write_error = exc
-            if self.sandbox_id and not self.options.mock:
+            if (
+                self.sandbox_id
+                and not self.options.mock
+                and os.environ.get("AGENT_REPLAY_SANDBOX_METRICS", "1") != "0"
+            ):
                 try:
                     from .sandbox_metrics import fetch_sandbox_metrics, write_sandbox_metrics
 
