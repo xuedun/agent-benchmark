@@ -369,6 +369,8 @@ class SandboxRunner:
             result["replay_completed"] = not result["stopped_early"]
             result["succeeded"] = result["replay_completed"]
             result["submitted"] = terminal is not None and result["replay_completed"]
+            if self.options.post_run_drop_caches and not self.options.mock:
+                await self._post_run_drop_caches(result)
         except asyncio.CancelledError:
             cancelled = True
             result["error"] = "Replay cancelled"
@@ -478,6 +480,35 @@ class SandboxRunner:
     @staticmethod
     def _duration(start: float | None, end: float | None) -> float | None:
         return None if start is None or end is None else max(0.0, end - start)
+
+    async def _post_run_drop_caches(self, result: dict[str, Any]) -> None:
+        started = time.perf_counter()
+        result["post_run_drop_caches"] = True
+        try:
+            raw = await self._dispatch_command(
+                "sync && echo 1 > /proc/sys/vm/drop_caches",
+                30,
+                operation="post_run_drop_caches",
+            )
+            _stdout, _stderr, return_code = result_fields(raw)
+            result["post_run_drop_caches_sec"] = round(time.perf_counter() - started, 3)
+            if return_code not in (None, 0):
+                result["post_run_drop_caches_error"] = f"exit_code={return_code}"
+                self._event(
+                    "warning",
+                    f"Post-run page cache drop exited with code={return_code}",
+                )
+            else:
+                self._event("info", "Post-run page cache drop done")
+        except Exception as exc:
+            result["post_run_drop_caches_sec"] = round(time.perf_counter() - started, 3)
+            result["post_run_drop_caches_error"] = f"{type(exc).__name__}: {exc}"
+            self._event(
+                "warning",
+                f"Post-run page cache drop failed: {result['post_run_drop_caches_error']}",
+            )
+        if os.environ.get("AGENT_REPLAY_SANDBOX_METRICS", "1") != "0":
+            await asyncio.sleep(4.0)
 
     async def _dispatch_command(
         self, command: str, timeout_sec: int | None, *, operation: str = "command"
