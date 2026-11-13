@@ -248,12 +248,12 @@ def vm_mem_section(vms: list[dict], out_dir: Path) -> None:
 def process_root(root: Path, out_dir: Path) -> None:
     task_files = discover(root, TASK_GLOBS)
     vms = [vm for f in task_files if (vm := load_vm(f)) is not None]
-    if not vms:
-        print(f"[{root}] no task results found, skipping")
-        return
-    print(f"[{root}] {len(vms)} VM task results")
     out_dir.mkdir(parents=True, exist_ok=True)
-    exec_summary(vms, out_dir)
+    if vms:
+        print(f"[{root}] {len(vms)} VM task results")
+        exec_summary(vms, out_dir)
+    else:
+        print(f"[{root}] no task results; plotting metrics curves only")
 
     metrics_files = discover(root, METRICS_GLOBS)
     if not metrics_files:
