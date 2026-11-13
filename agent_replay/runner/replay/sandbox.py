@@ -393,11 +393,22 @@ class SandboxRunner:
                 try:
                     from .sandbox_metrics import fetch_sandbox_metrics, write_sandbox_metrics
 
-                    samples = fetch_sandbox_metrics(self.sandbox_id, timeout_s=10.0)
+                    samples, reason = fetch_sandbox_metrics(self.sandbox_id, timeout_s=10.0)
                     if write_sandbox_metrics(self.output_dir, self.sandbox_id, samples):
                         self._event(
                             "info",
                             f"Collected sandbox metrics sandbox={self.sandbox_id} samples={len(samples)}",
+                        )
+                    elif samples is None:
+                        self._event(
+                            "warning",
+                            f"Sandbox metrics unavailable sandbox={self.sandbox_id}: {reason}",
+                        )
+                    else:
+                        self._event(
+                            "warning",
+                            f"Sandbox metrics history empty sandbox={self.sandbox_id} "
+                            "(server sampling disabled or sandbox never sampled)",
                         )
                 except Exception as exc:
                     self._event("warning", f"Sandbox metrics collection failed: {exc!r}")
