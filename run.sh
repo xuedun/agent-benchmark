@@ -49,12 +49,15 @@ for MULT in "${MULTIPLIERS[@]}"; do
       log "START ratio=$RATIO mult=$MULT cell=${WAY}_${FRE} -> $OUT"
       apply_cell "$WAY" "$MASK" "$FRE" "$FREQ_ARG"
       COLLECT_PID=""
+      COLLECT_STAGE=""
       if [[ "$COLLECT_MPKI" == "1" && "$DRY_RUN" != "1" ]]; then
-          mkdir -p "$OUT"
-          setsid bash scripts/collect_metrics.sh "$COLLECT_CAP_SEC" "$OUT/_collect" \
-              > "$OUT/_collect.launch.log" 2>&1 < /dev/null &
+          COLLECT_STAGE="./.collect_tmp_${RATIO}_${MULT}_${WAY}_${FRE}"
+          rm -rf "$COLLECT_STAGE"
+          mkdir -p "$COLLECT_STAGE"
+          setsid bash scripts/collect_metrics.sh "$COLLECT_CAP_SEC" "$COLLECT_STAGE" \
+              > "$COLLECT_STAGE.launch.log" 2>&1 < /dev/null &
           COLLECT_PID=$!
-          log "collector pid=$COLLECT_PID -> $OUT/_collect (pre-warm ${COLLECT_PRE_WARM_SEC}s)"
+          log "collector pid=$COLLECT_PID -> $COLLECT_STAGE (pre-warm ${COLLECT_PRE_WARM_SEC}s)"
           sleep "$COLLECT_PRE_WARM_SEC"
       fi
       if [[ "$DRY_RUN" == "1" ]]; then
@@ -77,6 +80,12 @@ for MULT in "${MULTIPLIERS[@]}"; do
       if [[ -n "$COLLECT_PID" ]]; then
           kill -TERM "$COLLECT_PID" 2>/dev/null
           wait "$COLLECT_PID" 2>/dev/null
+          if [[ -n "$COLLECT_STAGE" && -d "$COLLECT_STAGE" ]]; then
+              mkdir -p "$OUT"
+              rm -rf "$OUT/_collect"
+              mv "$COLLECT_STAGE" "$OUT/_collect"
+              mv "$COLLECT_STAGE.launch.log" "$OUT/_collect.launch.log" 2>/dev/null || true
+          fi
           local_summary=$(grep -m1 -E 'mean_mpki|mean_ipc' "$OUT/_collect/summary.txt" 2>/dev/null || echo "summary未生成")
           log "collector stopped: $local_summary"
       fi
