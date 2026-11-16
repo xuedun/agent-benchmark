@@ -42,7 +42,17 @@ VM_METRICS_GLOBS = (
     "ratio-*/repeat-*/tasks/*/sandbox-metrics.json",
     "*/ratio-*/repeat-*/tasks/*/sandbox-metrics.json",
 )
+COUNTERS_GLOBS = (
+    "_collect/counters.csv",
+    "*/_collect/counters.csv",
+)
 GB = 1024.0 ** 3
+COUNTER_EVENTS = {
+    "cycles", "instructions",
+    "LLC-loads", "LLC-load-misses",
+    "ls_dmnd_fills_from_sys.dram_io_near",
+    "ls_dmnd_fills_from_sys.dram_io_far",
+}
 
 
 def percentile(values: list[float], q: float) -> float | None:
@@ -284,6 +294,92 @@ def vm_mem_section(vm_mems: list[dict], out_dir: Path, per_vm: bool = False) -> 
         print(f"  wrote {len(vm_mems)} per-VM PNGs: {plots_dir}/")
 
 
+def parse_counters(path: Path) -> list[dict]:
+    rows: dict[float, dict] = {}
+    try:
+        lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+    except OSError:
+        return []
+    for line in lines:
+        parts = [p.strip() for p in line.split(",")]
+        evt = next((p for p in parts if p in COUNTER_EVENTS), None)
+        if evt is None:
+            continue
+        evt_idx = parts.index(evt)
+        if evt_idx < 3:
+            continue
+        try:
+            ts = float(parts[0])
+        except ValueError:
+            continue
+        val = None
+        for p in reversed(parts[:evt_idx]):
+            try:
+                val = float(p)
+                break
+            except ValueError:
+                continue
+        if val is None:
+            continue
+        rows.setdefault(ts, {})[evt] = val
+    series = []
+    for ts, ev in sorted(rows.items()):
+        ipc = ev["instructions"] / ev["cycles"] if ev.get("cycles") else None
+        miss = (ev.get("ls_dmnd_fills_from_sys.dram_io_near") or 0) \
+            + (ev.get("ls_dmnd_fills_from_sys.dram_io_far") or 0)
+        if miss <= 0:
+            miss = ev.get("LLC-load-misses") or 0
+        mpki = miss / ev["instructions"] * 1000 if ev.get("instructions") else None
+        freq = ev["cycles"] / 1e9 if ev.get("cycles") else None
+        series.append({"ts": ts, "ipc": ipc, "mpki": mpki, "freq_ghz": freq})
+    return series
+
+
+def counters_plot(series: list[dict], label: str, out_path: Path) -> bool:
+    pts = [(s["ts"], s["ipc"], s["mpki"], s["freq_ghz"]) for s in series
+           if s["ipc"] is not None]
+    if len(pts) < 5:
+        return False
+    xs = [p[0] for p in pts]
+    fig, (ax_ipc, ax_mpki) = plt.subplots(2, 1, figsize=(14, 8), sharex=True)
+    ax_ipc.plot(xs, [p[1] for p in pts], linewidth=0.9)
+    ax_ipc.set_ylabel("IPC")
+    ax_ipc.set_title(f"IPC / MPKI over time - {label} ({len(pts)} samples, 1s interval)")
+    ax_ipc.grid(alpha=0.3)
+    mp = [(p[0], p[2]) for p in pts if p[2] is not None]
+    ax_mpki.plot([m[0] for m in mp], [m[1] for m in mp], linewidth=0.9, color="tab:orange")
+    ax_mpki.set_ylabel("MPKI")
+    ax_mpki.set_xlabel("elapsed since collector start (s)")
+    ax_mpki.grid(alpha=0.3)
+    if pts[0][3] and pts[-1][3]:
+        ax_ipc.annotate(
+            f"cycles: {pts[0][3]:.1f}G/s -> {pts[-1][3]:.1f}G/s per interval",
+            xy=(0.02, 0.92), xycoords="axes fraction", fontsize=9)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return True
+
+
+def counters_section(root: Path, out_dir: Path) -> None:
+    files = discover(root, COUNTERS_GLOBS)
+    if not files:
+        return
+    for cf in files:
+        series = parse_counters(cf)
+        if not series:
+            continue
+        rel = cf.parent.parent.relative_to(root)
+        label = str(rel) if str(rel) != "." else "run"
+        png = out_dir / f"counters_{label.replace('/', '_')}.png"
+        if counters_plot(series, label, png):
+            ipcs = [s["ipc"] for s in series if s["ipc"] is not None]
+            mpkis = [s["mpki"] for s in series if s["mpki"] is not None]
+            print(f"  counters: {len(series)}s, mean_ipc={sum(ipcs)/len(ipcs):.3f}"
+                  + (f" mean_mpki={sum(mpkis)/len(mpkis):.2f}" if mpkis else "")
+                  + f", wrote: {png}")
+
+
 def process_root(root: Path, out_dir: Path, per_vm: bool = False) -> None:
     task_files = discover(root, TASK_GLOBS)
     vms = []
@@ -331,6 +427,8 @@ def process_root(root: Path, out_dir: Path, per_vm: bool = False) -> None:
         vm_mem_section(vm_mems, out_dir, per_vm=per_vm)
     else:
         print("  no per-VM sandbox-metrics.json found, skipping vm mem curves")
+
+    counters_section(root, out_dir)
 
 
 def main() -> int:
