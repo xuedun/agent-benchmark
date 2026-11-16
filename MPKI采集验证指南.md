@@ -10,7 +10,7 @@
 ```bash
 # 三条各跑一次，看输出是否出现 <not supported> / <not counted>
 perf stat -a -e cycles,instructions -- sleep 1
-perf stat -a -e 'ls_dmnd_fills_from_sys.dram_io_near+ls_dmnd_fills_from_sys.dram_io_far' -- sleep 1
+perf stat -a -e ls_dmnd_fills_from_sys.dram_io_near,ls_dmnd_fills_from_sys.dram_io_far -- sleep 1
 perf stat -a -e LLC-loads,LLC-load-misses -- sleep 1
 ```
 
@@ -22,7 +22,7 @@ perf stat -a -e LLC-loads,LLC-load-misses -- sleep 1
 
 口径说明（选型依据）：
 
-- **DRAM-fill 对**（`ls_dmnd_fills_from_sys.dram_io_near+far`）：穿透**所有**缓存到 DRAM
+- **DRAM-fill 对**（`ls_dmnd_fills_from_sys.dram_io_near` + `...dram_io_far` 两事件求和）：穿透**所有**缓存到 DRAM
   的填充——**容量/超分/拐点分析应使用此口径**（脚本默认优先选择它）。
 - **LLC-loads/misses**：L3 级缺失，含跨 CCD 远端 L3 命中部分。
 - 两口径绝对值不可混比；跨机器/跨配置对比用各自的变化倍数。
