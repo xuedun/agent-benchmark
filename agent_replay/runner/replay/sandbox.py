@@ -395,7 +395,7 @@ class SandboxRunner:
             if (
                 self.sandbox_id
                 and not self.options.mock
-                and os.environ.get("AGENT_REPLAY_SANDBOX_METRICS", "1") != "0"
+                and os.environ.get("AGENT_REPLAY_SANDBOX_METRICS", "0") == "1"
             ):
                 try:
                     from .sandbox_metrics import fetch_sandbox_metrics, write_sandbox_metrics
@@ -507,7 +507,7 @@ class SandboxRunner:
                 "warning",
                 f"Post-run page cache drop failed: {result['post_run_drop_caches_error']}",
             )
-        if os.environ.get("AGENT_REPLAY_SANDBOX_METRICS", "1") != "0":
+        if os.environ.get("AGENT_REPLAY_SANDBOX_METRICS", "0") == "1":
             await asyncio.sleep(4.0)
 
     async def _dispatch_command(
