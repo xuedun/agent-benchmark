@@ -44,6 +44,17 @@ fi
 EVENTS="$BASE${MISS:+,$MISS}"
 log "host=$HOSTN arch=$ARCH miss=$MISS_KIND events=$EVENTS dur=${DUR}s"
 
+EARLY_STOP=0
+PERF_PID=""
+SIDE_PID=""
+stop_early() {
+    EARLY_STOP=1
+    log "early stop requested (TERM/INT)"
+    [[ -n "$PERF_PID" ]] && kill -INT "$PERF_PID" 2>/dev/null
+    [[ -n "$SIDE_PID" ]] && kill -TERM "$SIDE_PID" 2>/dev/null
+}
+trap stop_early TERM INT
+
 PROBE_SRC="$OUT/lat_probe.c"
 cat > "$PROBE_SRC" <<'CEOF'
 #include <stdio.h>
@@ -95,6 +106,10 @@ if [[ -n "$PROBE_BIN" ]]; then
     : > "$OUT/latency_sweep.csv"
     echo "ws_bytes,iters,ns_per_access" >> "$OUT/latency_sweep.csv"
     for ws in 32768 262144 2097152 8388608 33554432 67108864 134217728 268435456 536870912 1073741824; do
+        if [[ $EARLY_STOP -eq 1 ]]; then
+            log "sweep aborted by early stop"
+            break
+        fi
         n=$((ws / 8))
         iters=$((n * 8)); (( iters > 20000000 )) && iters=20000000; (( iters < 500000 )) && iters=500000
         ns=$(taskset -c "$PROBE_CPU" "$PROBE_BIN" "$ws" "$iters" 2>/dev/null | tail -1)
@@ -104,6 +119,9 @@ if [[ -n "$PROBE_BIN" ]]; then
     log "sweep done"
 fi
 
+if [[ $EARLY_STOP -eq 1 ]]; then
+    log "skipping main collection (early stop before start)"
+else
 log "starting main collection for ${DUR}s"
 perf stat -a -e "$EVENTS" -I 1000 -x, -o "$OUT/counters.csv" -- sleep "$DUR" &
 PERF_PID=$!
@@ -144,6 +162,8 @@ SIDE_PID=$!
 wait "$PERF_PID" 2>/dev/null
 kill "$SIDE_PID" 2>/dev/null
 wait "$SIDE_PID" 2>/dev/null
+fi
+log "collection finished early_stop=$EARLY_STOP"
 
 {
     echo "host=$HOSTN arch=$ARCH"
@@ -169,11 +189,13 @@ def parse_line(line):
     if evt is None:
         return None, None, None
     evt_idx = parts.index(evt)
+    if evt_idx < 3:
+        return None, None, None
     ts = None
     try:
         ts = float(parts[0])
     except ValueError:
-        pass
+        return None, None, None
     val = None
     for p in reversed(parts[:evt_idx]):
         try:
