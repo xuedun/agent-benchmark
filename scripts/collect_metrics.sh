@@ -32,8 +32,8 @@ else
     exit 1
 fi
 MISS=""; MISS_KIND="none"
-if [[ "$ARCH" == "x86_64" ]] && probe_events "ls_dmnd_fills_from_sys.dram_io_near+ls_dmnd_fills_from_sys.dram_io_far"; then
-    MISS="ls_dmnd_fills_from_sys.dram_io_near+ls_dmnd_fills_from_sys.dram_io_far"
+if [[ "$ARCH" == "x86_64" ]] && probe_events "ls_dmnd_fills_from_sys.dram_io_near,ls_dmnd_fills_from_sys.dram_io_far"; then
+    MISS="ls_dmnd_fills_from_sys.dram_io_near,ls_dmnd_fills_from_sys.dram_io_far"
     MISS_KIND="dram_fill"
 elif probe_events "LLC-loads,LLC-load-misses"; then
     MISS="LLC-loads,LLC-load-misses"
@@ -158,7 +158,8 @@ import sys
 EVENTS = {
     "cycles", "instructions",
     "LLC-loads", "LLC-load-misses",
-    "ls_dmnd_fills_from_sys.dram_io_near+ls_dmnd_fills_from_sys.dram_io_far",
+    "ls_dmnd_fills_from_sys.dram_io_near",
+    "ls_dmnd_fills_from_sys.dram_io_far",
 }
 
 
@@ -200,10 +201,11 @@ if rows:
     for t, ev in sorted(rows.items()):
         if ev.get("cycles", 0) > 0 and ev.get("instructions") is not None:
             ipcs.append(ev["instructions"] / ev["cycles"])
-            m = ev.get("ls_dmnd_fills_from_sys.dram_io_near+ls_dmnd_fills_from_sys.dram_io_far")
-            if m is None:
-                m = ev.get("LLC-load-misses")
-            if m is not None:
+            m = (ev.get("ls_dmnd_fills_from_sys.dram_io_near") or 0) \
+                + (ev.get("ls_dmnd_fills_from_sys.dram_io_far") or 0)
+            if m <= 0:
+                m = ev.get("LLC-load-misses") or 0
+            if m > 0:
                 mpkis.append(m / ev["instructions"] * 1000)
             cyc_s.append(ev["cycles"])
     if ipcs:

@@ -39,10 +39,10 @@ grep -E 'miss_kind|mean_mpki|mean_ipc|mean_cycles' /tmp/cmtest/summary.txt
 然后手动二分验证——同一探针、两个工作集（8MB 装得进 L3 vs 1GB 必然溢出）：
 
 ```bash
-E='ls_dmnd_fills_from_sys.dram_io_near+ls_dmnd_fills_from_sys.dram_io_far'
+E='ls_dmnd_fills_from_sys.dram_io_near,ls_dmnd_fills_from_sys.dram_io_far'
 perf stat -e cycles,instructions,"$E" taskset -c 0 /tmp/cmtest/lat_probe 8388608 5000000
 perf stat -e cycles,instructions,"$E" taskset -c 0 /tmp/cmtest/lat_probe 1073741824 5000000
-# 手算: MPKI = miss事件数 ÷ instructions × 1000
+# 手算: MPKI = (near + far 两个事件求和) ÷ instructions × 1000
 ```
 
 **判读表（预注册，勿事后拟合）**：
