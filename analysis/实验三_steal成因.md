@@ -40,3 +40,6 @@
 
 - 分析脚本：`/tmp/opencode/e3_analyze.py`（episode 合并 + CCL join + 分位相关）
 - 数据：`/tmp/opencode/a1_8x/e3_correlation.json`（384 行：case/sid/ccl/wall/steal/steal_frac/wait_cores/run_cores）
+
+
+> 本文档为总纲第三步，另见 `00_分析总纲.md`。
