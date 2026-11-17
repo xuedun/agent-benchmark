@@ -102,13 +102,34 @@ cmd_limit() {
         ''|*[!0-9]*) die "freq must be kHz, e.g. 2600000" ;;
     esac
     if [ -f "$MARKER" ]; then
-        die "already clamped to $(cat "$MARKER"); run '$0 restore' first"
+        prev=$(cat "$MARKER")
+        if [ "$prev" = "$freq" ]; then
+            # Idempotent re-apply: a previous cell may have been interrupted
+            # before restore. Re-enforce the same clamp WITHOUT re-backing-up,
+            # otherwise the original unclamped state would be overwritten by the
+            # already-clamped values and restore could never undo it.
+            echo "already clamped to ${prev} kHz; re-enforcing"
+            enforce_clamp "$freq" nobackup
+            return 0
+        fi
+        # Different target: undo the previous clamp first (keeps the original
+        # backup intact, since restore re-reads the same backup dir).
+        echo "re-clamping: ${prev} kHz -> ${freq} kHz"
+        cmd_restore || die "restore of previous clamp (${prev} kHz) failed"
     fi
     n_policies=$(policies | wc -l)
     if [ "$n_policies" -eq 0 ]; then
         die "no cpufreq policies found (cpufreq disabled?)"
     fi
-    cmd_backup
+    enforce_clamp "$freq"
+}
+
+enforce_clamp() {
+    freq=$1
+    do_backup=${2:-backup}
+    if [ "$do_backup" = "backup" ]; then
+        cmd_backup
+    fi
     mismatch=0
     # Disable boost unconditionally on limit: a clamp is only meaningful if the CPU
     # cannot exceed the requested frequency. Leaving boost on lets the SMU
