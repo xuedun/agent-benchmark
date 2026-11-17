@@ -25,6 +25,11 @@ DRY_RUN=${DRY_RUN:-0}
 COLLECT_MPKI=${COLLECT_MPKI:-1}
 COLLECT_CAP_SEC=43200
 COLLECT_PRE_WARM_SEC=60
+# Latency probe OFF by default: it allocates a large buffer and pins one CPU
+# every 30s, which can stall the host during 3072-way sandbox create storms
+# (direct reclaim/compaction -> "Create timed out"). L3 miss rate / MPKI come
+# from perf counters alone and need no probe. Set COLLECT_PROBE=1 to enable.
+COLLECT_PROBE=${COLLECT_PROBE:-0}
 
 log() { echo "[$(date '+%F %T')] $*" | tee -a "$RUN_LOG"; }
 
@@ -63,14 +68,21 @@ for MULT in "${MULTIPLIERS[@]}"; do
           COLLECT_STAGE="./.collect_tmp_${RATIO}_${MULT}_${WAY}_${FRE}"
           rm -rf "$COLLECT_STAGE"
           mkdir -p "$COLLECT_STAGE"
-          setsid bash scripts/collect_metrics.sh "$COLLECT_CAP_SEC" "$COLLECT_STAGE" \
+          PROBE="$COLLECT_PROBE" setsid bash scripts/collect_metrics.sh \
+              "$COLLECT_CAP_SEC" "$COLLECT_STAGE" \
               > "$COLLECT_STAGE.launch.log" 2>&1 < /dev/null &
           COLLECT_PID=$!
-          log "collector pid=$COLLECT_PID -> $COLLECT_STAGE (pre-warm ${COLLECT_PRE_WARM_SEC}s)"
-          sleep "$COLLECT_PRE_WARM_SEC"
+          if [[ "$COLLECT_PROBE" == "1" ]]; then
+              # the pre-replay latency ladder needs to finish before the bench starts
+              log "collector pid=$COLLECT_PID -> $COLLECT_STAGE (probe ON, pre-warm ${COLLECT_PRE_WARM_SEC}s)"
+              sleep "$COLLECT_PRE_WARM_SEC"
+          else
+              log "collector pid=$COLLECT_PID -> $COLLECT_STAGE (probe OFF, counters only)"
+              sleep 5
+          fi
       fi
       if [[ "$DRY_RUN" == "1" ]]; then
-          log "DRY: bench ratio=$RATIO mult=$MULT -> $OUT (freq=${FREQ_ARG} collect=${COLLECT_MPKI})"
+          log "DRY: bench ratio=$RATIO mult=$MULT -> $OUT (freq=${FREQ_ARG} collect=${COLLECT_MPKI} probe=${COLLECT_PROBE})"
           continue
       fi
       python -m agent_replay.runner bench \

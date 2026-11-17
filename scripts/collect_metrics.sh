@@ -1,10 +1,16 @@
 #!/bin/bash
-# collect_metrics.sh — replay side-car: IPC + L3 MPKI + memory latency in one run
+# collect_metrics.sh — replay side-car: IPC + L3 MPKI (+ optional memory latency)
 # Usage:  nohup ./collect_metrics.sh <duration_sec> <out_dir> &    # start before replay
+# Env:
+#   PROBE=0|1   latency probe collection (default 1). Set 0 to collect only
+#               counters.csv + psi.csv. The probe allocates a large buffer and
+#               chases pointers on one pinned CPU every 30s; under heavy sandbox
+#               create storms that can stall the host (direct reclaim/compaction)
+#               and is not needed for L3 miss-rate / MPKI.
 # Outputs (in <out_dir>):
 #   counters.csv        per-second cycles,instructions(+miss events), one time axis
-#   latency_sweep.csv   pre-replay cache-hierarchy profile (32K..1G ladder, idle)
-#   latency_probe.csv   during-replay loaded latency (8M/256M every 30s)
+#   latency_sweep.csv   pre-replay cache-hierarchy profile (32K..1G ladder, idle)   [PROBE=1]
+#   latency_probe.csv   during-replay loaded latency (8M/256M every 30s)            [PROBE=1]
 #   psi.csv             per-second PSI (cpu/memory/io some)
 #   summary.txt         start epoch, event set, sanity checks, mean IPC/MPKI
 set -u
@@ -93,13 +99,16 @@ int main(int argc, char **argv) {
 }
 CEOF
 PROBE_BIN="$OUT/lat_probe"
-if cc -O2 -o "$PROBE_BIN" "$PROBE_SRC" 2>>"$LOG"; then
+if [[ "${PROBE:-1}" != "1" ]]; then
+    log "latency probe DISABLED (PROBE=0): collecting counters.csv + psi.csv only"
+    PROBE_BIN=""
+elif cc -O2 -o "$PROBE_BIN" "$PROBE_SRC" 2>>"$LOG"; then
     log "latency probe compiled"
 else
     log "WARN: no C compiler, latency collection skipped"
     PROBE_BIN=""
 fi
-PROBE_CPU=0
+PROBE_CPU=${PROBE_CPU:-0}
 
 if [[ -n "$PROBE_BIN" ]]; then
     log "pre-replay latency sweep (idle baseline)"
