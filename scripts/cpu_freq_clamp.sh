@@ -21,6 +21,8 @@ read_field() {
 cmd_status() {
     driver=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_driver 2>/dev/null || echo "n/a")
     echo "driver: $driver"
+    gboost=$(cat /sys/devices/system/cpu/cpufreq/boost 2>/dev/null || echo "n/a")
+    echo "global boost: $gboost (0 = disabled)"
     if [ -f "$MARKER" ]; then
         echo "state : CLAMPED to $(cat "$MARKER") kHz (backup: $BACKUP_DIR)"
     else
@@ -42,6 +44,10 @@ cmd_status() {
 cmd_backup() {
     rm -rf "$BACKUP_DIR"
     mkdir -p "$BACKUP_DIR"
+    # global boost switch (present on acpi-cpufreq; amd-pstate may lack it)
+    if [ -f /sys/devices/system/cpu/cpufreq/boost ]; then
+        cat /sys/devices/system/cpu/cpufreq/boost > "$BACKUP_DIR/GLOBAL_BOOST"
+    fi
     for p in $(policies); do
         n=${p##*/}
         {
@@ -104,17 +110,23 @@ cmd_limit() {
     fi
     cmd_backup
     mismatch=0
+    # Disable boost unconditionally on limit: a clamp is only meaningful if the CPU
+    # cannot exceed the requested frequency. Leaving boost on lets the SMU
+    # (amd-pstate/PBO on Zen4) run above scaling_max_freq, so the clamp silently
+    # fails to fix the frequency.
+    if [ -f /sys/devices/system/cpu/cpufreq/boost ]; then
+        echo 0 > /sys/devices/system/cpu/cpufreq/boost 2>/dev/null \
+            || echo "  WARN: global boost write refused" >&2
+    fi
     for p in $(policies); do
         min=$(cat "$p/scaling_min_freq")
         if [ "$min" -gt "$freq" ]; then
             echo "$freq" > "$p/scaling_min_freq"
         fi
         echo "$freq" > "$p/scaling_max_freq"
+        if [ -f "$p/boost" ]; then echo 0 > "$p/boost" 2>/dev/null || true; fi
+        if [ -f "$p/cpb" ]; then echo 0 > "$p/cpb" 2>/dev/null || true; fi
         nominal=$(normalize_khz "$(policy_nominal "$p")")
-        if [ -n "$nominal" ] && [ "$freq" -le "$nominal" ]; then
-            if [ -f "$p/boost" ]; then echo 0 > "$p/boost" 2>/dev/null || true; fi
-            if [ -f "$p/cpb" ]; then echo 0 > "$p/cpb" 2>/dev/null || true; fi
-        fi
         eff=$(cat "$p/scaling_max_freq")
         if [ "$eff" != "$freq" ]; then
             mismatch=$((mismatch + 1))
@@ -124,15 +136,43 @@ cmd_limit() {
         fi
     done
     echo "$freq" > "$MARKER"
-    echo "clamped $n_policies policies to ${freq} kHz (governor untouched; boost left on when freq > nominal; backup: $BACKUP_DIR)"
+    echo "clamped $n_policies policies to ${freq} kHz; boost DISABLED (governor untouched; backup: $BACKUP_DIR)"
     if [ "$mismatch" -gt 0 ]; then
         echo "NOTE: $mismatch policy(ies) did not land exactly on ${freq} kHz (driver snapped to an available P-state)."
+    fi
+    # amd-pstate (Zen4) treats scaling_max_freq as a request, not a hard cap.
+    # Verify with real observed frequency when turbostat is available.
+    if command -v turbostat >/dev/null 2>&1; then
+        echo "verifying actual frequency with turbostat (3s under light load)..."
+        obs=$(turbostat --quiet --interval 1 --num_iterations 3 --show Bzy_MHz 2>/dev/null \
+              | awk 'NR>1 && $1+0>0 {s+=$1; n++} END {if (n) printf "%d", s/n}')
+        if [ -n "$obs" ]; then
+            limit_mhz=$((freq / 1000))
+            if [ "$obs" -gt $((limit_mhz + limit_mhz / 20)) ]; then
+                echo "  ERROR: observed Bzy_MHz=${obs} exceeds cap ${limit_mhz} (+5% tolerance)." >&2
+                echo "         The driver is ignoring scaling_max_freq (typical amd-pstate active mode)." >&2
+                echo "         Fix: boot with amd_pstate=disable (or =passive + userspace governor)," >&2
+                echo "              or hard-lock P-state via wrmsr 0xC0010062." >&2
+                echo "         State is left CLAMPED (boost off); run '$0 restore' to undo." >&2
+                exit 2
+            fi
+            echo "  OK: Bzy_MHz=${obs} within cap ${limit_mhz}"
+        else
+            echo "  WARN: turbostat produced no Bzy_MHz samples; verify manually" >&2
+        fi
+    else
+        echo "NOTE: turbostat not installed; cannot verify real frequency (scaling_cur_freq is a request value on amd-pstate)."
     fi
 }
 
 cmd_restore() {
     if [ ! -f "$MARKER" ]; then
         die "not clamped"
+    fi
+    # restore global boost first so per-policy caps can be raised again
+    if [ -f "$BACKUP_DIR/GLOBAL_BOOST" ] && [ -f /sys/devices/system/cpu/cpufreq/boost ]; then
+        echo "$(cat "$BACKUP_DIR/GLOBAL_BOOST")" > /sys/devices/system/cpu/cpufreq/boost \
+            2>/dev/null || echo "  WARN: global boost restore refused" >&2
     fi
     for p in $(policies); do
         n=${p##*/}
@@ -167,8 +207,9 @@ case ${1:-} in
     restore) cmd_restore ;;
     status)  cmd_status ;;
     *) echo "usage: sudo $0 {limit [freq_kHz] | restore | status}"
-       echo "  limit   clamp all policies (default ${DEFAULT_FREQ} kHz), backup originals"
+       echo "  limit   clamp all policies (default ${DEFAULT_FREQ} kHz), DISABLE boost, backup originals"
+       echo "          verifies real Bzy_MHz via turbostat; exits 2 if the cap is ignored (amd-pstate)"
        echo "  restore restore governor/min/max/boost/cpb/epp from backup"
-       echo "  status  show per-policy state"
+       echo "  status  show per-policy state and global boost"
        exit 1 ;;
 esac

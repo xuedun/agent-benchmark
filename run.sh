@@ -30,11 +30,20 @@ log() { echo "[$(date '+%F %T')] $*" | tee -a "$RUN_LOG"; }
 
 apply_cell() {
     local way=$1 mask=$2 fre=$3 freq_arg=$4
+    if [[ "$DRY_RUN" == "1" ]]; then
+        log "DRY: apply_cell way=$way mask=$mask fre=$fre freq_arg=$freq_arg (skipped)"
+        return 0
+    fi
     pqos -e "llc:0=$MASK" || log "WARN: pqos mask $MASK failed"
     if [[ "$freq_arg" == "restore" ]]; then
-        bash scripts/cpu_freq_clamp.sh restore || true
+        bash scripts/cpu_freq_clamp.sh restore || log "WARN: freq restore failed"
     else
-        bash scripts/cpu_freq_clamp.sh limit "$freq_arg" || true
+        if ! bash scripts/cpu_freq_clamp.sh limit "$freq_arg"; then
+            log "FATAL: freq clamp to ${freq_arg} kHz NOT honored (driver ignored the cap)."
+            log "       This cell would run at an uncontrolled frequency - aborting."
+            bash scripts/cpu_freq_clamp.sh restore || true
+            exit 3
+        fi
     fi
     local cur
     cur=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq 2>/dev/null)
@@ -93,6 +102,8 @@ for MULT in "${MULTIPLIERS[@]}"; do
   done
 done
 
-pqos -e 'llc:0=0xFFFF' || true
-bash scripts/cpu_freq_clamp.sh restore || true
+if [[ "$DRY_RUN" != "1" ]]; then
+    pqos -e 'llc:0=0xFFFF' || true
+    bash scripts/cpu_freq_clamp.sh restore || true
+fi
 log "ALL DONE, mask=full freq=restored"
