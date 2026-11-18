@@ -11,6 +11,10 @@ layout). No per-VM rows: writes exec_summary.csv with one row per statistic.
 
 Also plots host CPU and memory utilization over time from
 `observability/metrics_1s.jsonl` as two subplots in one PNG per metrics file.
+
+Cases listed in `skiplist.txt` (repo root, or --skiplist PATH) are excluded
+from the aggregation: their VMs are dropped from exec_summary.csv /
+vm_total.csv / vm memory sections and written to skipped.csv instead.
 """
 from __future__ import annotations
 
@@ -85,6 +89,34 @@ def discover(root: Path, globs: tuple[str, ...]) -> list[Path]:
                 seen.add(path)
                 out.append(path)
     return out
+
+
+def load_skiplist(path: Path) -> set[str] | None:
+    """Load case names to skip. Returns None when the file does not exist
+    (backward compatible: no filtering). Entries are trajectory stems; a
+    '.replay.json' suffix is tolerated and stripped. '#' comments and blank
+    lines are ignored."""
+    if not path.is_file():
+        return None
+    names: set[str] = set()
+    for line in path.read_text(encoding="utf-8").splitlines():
+        name = line.strip()
+        if not name or name.startswith("#"):
+            continue
+        if name.endswith(".replay.json"):
+            name = name[: -len(".replay.json")]
+        elif name.endswith(".replay"):
+            name = name[: -len(".replay")]
+        names.add(name)
+    return names or None
+
+
+def traj_name(trajectory: str) -> str:
+    """Normalize a trajectory filename/stem to the bare case name."""
+    name = Path(str(trajectory or "unknown")).stem
+    if name.endswith(".replay"):
+        name = name[: -len(".replay")]
+    return name
 
 
 def task_label(path: Path, root: Path) -> str:
@@ -380,15 +412,34 @@ def counters_section(root: Path, out_dir: Path) -> None:
                   + f", wrote: {png}")
 
 
-def process_root(root: Path, out_dir: Path, per_vm: bool = False) -> None:
+def process_root(root: Path, out_dir: Path, per_vm: bool = False,
+                 skiplist: set[str] | None = None) -> None:
     task_files = discover(root, TASK_GLOBS)
     vms = []
+    skipped = []
     for f in task_files:
         vm = load_vm(f)
         if vm is not None:
             vm["trial"] = task_label(f, root)
-            vms.append(vm)
+            if skiplist and traj_name(vm.get("trajectory")) in skiplist:
+                skipped.append(vm)
+            else:
+                vms.append(vm)
     out_dir.mkdir(parents=True, exist_ok=True)
+    if skipped:
+        by_case: dict[str, int] = {}
+        for vm in skipped:
+            by_case[traj_name(vm.get("trajectory"))] = by_case.get(traj_name(vm.get("trajectory")), 0) + 1
+        print(f"  skiplist: dropped {len(skipped)} VMs from {len(by_case)} case(s): "
+              + ", ".join(f"{k}({v})" for k, v in sorted(by_case.items())))
+        path = out_dir / "skipped.csv"
+        with open(path, "w", newline="", encoding="utf-8-sig") as f:
+            writer = csv.DictWriter(f, fieldnames=["trial", "task", "sandbox_id", "trajectory"],
+                                    extrasaction="ignore")
+            writer.writeheader()
+            for vm in skipped:
+                writer.writerow(vm)
+        print(f"  wrote: {path} ({len(skipped)} VMs)")
     if vms:
         print(f"[{root}] {len(vms)} VM task results")
         exec_summary(vms, out_dir)
@@ -422,6 +473,11 @@ def process_root(root: Path, out_dir: Path, per_vm: bool = False) -> None:
         vm = load_vm_mem(f)
         if vm is not None:
             vm["trial"] = task_label(f, root)
+            # vm-metrics files carry no trajectory field: derive the case name
+            # from the task dir name ("NNNNNN-<case>").
+            case = f.parent.name.split("-", 1)[1] if "-" in f.parent.name else f.parent.name
+            if skiplist and case in skiplist:
+                continue
             vm_mems.append(vm)
     if vm_mems:
         vm_mem_section(vm_mems, out_dir, per_vm=per_vm)
@@ -437,14 +493,24 @@ def main() -> int:
     parser.add_argument("--out", type=Path, default=None, help="output dir (default: <root>/processed)")
     parser.add_argument("--per-vm", action="store_true",
                         help="also write one PNG per VM under <out>/vm_mem_plots/")
+    parser.add_argument("--skiplist", type=Path, default=None,
+                        help="case skiplist file (default: skiplist.txt at repo root; "
+                             "pass an empty path to disable)")
     args = parser.parse_args()
+    default_skiplist = Path(__file__).resolve().parent.parent / "skiplist.txt"
+    skiplist_path = args.skiplist if args.skiplist is not None else default_skiplist
+    skiplist = load_skiplist(skiplist_path)
+    if skiplist:
+        print(f"skiplist: {len(skiplist)} case(s) from {skiplist_path}")
+    else:
+        print(f"skiplist: none ({'file not found: ' + str(skiplist_path) if not skiplist_path.is_file() else 'empty'})")
     for root in args.roots:
         root = root.expanduser().resolve()
         if not root.is_dir():
             print(f"ERROR: {root} is not a directory", file=sys.stderr)
             return 1
         out_dir = (args.out or root / "processed").expanduser().resolve()
-        process_root(root, out_dir, per_vm=args.per_vm)
+        process_root(root, out_dir, per_vm=args.per_vm, skiplist=skiplist)
     return 0
 
 
