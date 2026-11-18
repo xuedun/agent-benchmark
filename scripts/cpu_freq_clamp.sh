@@ -101,19 +101,66 @@ normalize_khz() {
     fi
 }
 
+state_matches() {
+    # $1 = kHz. Returns 0 when the machine is ALREADY in the target clamp
+    # state: every policy capped at exactly $1, min <= cap, and every boost
+    # switch (global/per-policy/cpb) off. Read-only: makes no changes.
+    freq=$1
+    [ "$(policies | wc -l)" -gt 0 ] || return 1
+    if [ -f /sys/devices/system/cpu/cpufreq/boost ] \
+        && [ "$(cat /sys/devices/system/cpu/cpufreq/boost 2>/dev/null)" != "0" ]; then
+        return 1
+    fi
+    for p in $(policies); do
+        [ "$(cat "$p/scaling_max_freq" 2>/dev/null)" = "$freq" ] || return 1
+        [ "$(cat "$p/scaling_min_freq" 2>/dev/null)" -le "$freq" ] || return 1
+        if [ -f "$p/boost" ] && [ "$(cat "$p/boost" 2>/dev/null)" != "0" ]; then return 1; fi
+        if [ -f "$p/cpb" ] && [ "$(cat "$p/cpb" 2>/dev/null)" != "0" ]; then return 1; fi
+    done
+    return 0
+}
+
 cmd_limit() {
     freq=${1:-$DEFAULT_FREQ}
     case $freq in
         ''|*[!0-9]*) die "freq must be kHz, e.g. 2600000" ;;
     esac
+    # State-based idempotency: if the CURRENT sysfs state already equals the
+    # target clamp, do not rewrite anything (no backup churn, no repeated
+    # driver writes, no risk of overwriting the original backup with the
+    # clamped values). Just make sure marker/backup bookkeeping is sane and
+    # run the read-only verification.
+    if state_matches "$freq"; then
+        if [ -f "$MARKER" ]; then
+            prev=$(cat "$MARKER")
+            if [ "$prev" = "$freq" ]; then
+                echo "already clamped to ${prev} kHz (sysfs state verified); no writes needed"
+            else
+                # sysfs already at the NEW target (prior cell clamped, or an
+                # external clamp): keep the ORIGINAL backup (it still describes
+                # the pre-run state) and just re-point the marker.
+                echo "state already at ${freq} kHz (marker said ${prev} kHz); adopting without changes"
+                echo "$freq" > "$MARKER"
+            fi
+        else
+            # Matching state with no marker (external/manual clamp): back the
+            # CURRENT state up so later restore is a well-defined no-op, then
+            # mark. We never claim a state we cannot undo.
+            echo "state already at ${freq} kHz (no marker); backing up current state and marking"
+            cmd_backup
+            echo "$freq" > "$MARKER"
+        fi
+        verify_with_retry "$freq"
+        return 0
+    fi
     if [ -f "$MARKER" ]; then
         prev=$(cat "$MARKER")
         if [ "$prev" = "$freq" ]; then
-            # Idempotent re-apply: a previous cell may have been interrupted
-            # before restore. Re-enforce the same clamp WITHOUT re-backing-up,
-            # otherwise the original unclamped state would be overwritten by the
-            # already-clamped values and restore could never undo it.
-            echo "already clamped to ${prev} kHz; re-enforcing"
+            # Marker matches but sysfs drifted (interrupted partial clamp):
+            # re-enforce WITHOUT re-backing-up, otherwise the original
+            # unclamped state would be overwritten by the already-clamped
+            # values and restore could never undo it.
+            echo "marker says ${prev} kHz but sysfs drifted; re-enforcing"
             enforce_clamp "$freq" nobackup
             return 0
         fi
@@ -181,6 +228,44 @@ apply_policy_writes() {
     done
 }
 
+verify_with_retry() {
+    # $1 = cap in kHz. Verifies the real (turbostat) frequency; if the driver
+    # ignores the cap and amd-pstate is in active/guided mode, switches to
+    # passive at runtime (original mode is in the backup) and re-applies once.
+    # Exits 2 if the cap is still not honored. Callers must have a backup in
+    # place before this (cmd_limit guarantees it on every path).
+    freq=$1
+    vrc=0
+    verify_cap "$freq" || vrc=$?
+    if [ "$vrc" -eq 2 ]; then
+        ap=/sys/devices/system/cpu/amd_pstate/status
+        mode=""
+        [ -f "$ap" ] && mode=$(cat "$ap" 2>/dev/null)
+        if [ -n "$mode" ] && [ "$mode" != "passive" ]; then
+            echo "  cap not honored under amd-pstate '${mode}'; switching to passive and re-applying..." >&2
+            if echo passive > "$ap" 2>/dev/null && [ "$(cat "$ap" 2>/dev/null)" = "passive" ]; then
+                apply_policy_writes "$freq"
+                vrc=0
+                verify_cap "$freq" || vrc=$?
+                if [ "$vrc" -eq 0 ]; then
+                    echo "  OK: cap enforced after amd-pstate passive switch"
+                fi
+            else
+                echo "  WARN: amd-pstate mode switch to passive refused" >&2
+            fi
+        fi
+        if [ "$vrc" -eq 2 ]; then
+            echo "  ERROR: observed Bzy_MHz=${obs_mhz} exceeds cap $((freq / 1000)) (+5% tolerance)." >&2
+            echo "         The driver is ignoring scaling_max_freq (amd-pstate active mode)," >&2
+            echo "         and switching to passive did not help (or was refused)." >&2
+            echo "         Fix: boot with amd_pstate=disable (or amd_pstate=passive)," >&2
+            echo "              or hard-lock P-state via wrmsr 0xC0010062." >&2
+            echo "         State is left CLAMPED (boost off); run '$0 restore' to undo." >&2
+            exit 2
+        fi
+    fi
+}
+
 enforce_clamp() {
     freq=$1
     do_backup=${2:-backup}
@@ -201,37 +286,7 @@ enforce_clamp() {
     if [ "$mismatch" -gt 0 ]; then
         echo "NOTE: $mismatch policy(ies) did not land exactly on ${freq} kHz (driver snapped to an available P-state)."
     fi
-    # amd-pstate (Zen4) active/guided mode treats scaling_max_freq as a request,
-    # not a hard cap. Verify the real observed frequency; if the cap is ignored
-    # and the mode is switchable, retry once under passive mode (where the
-    # kernel enforces policy->max through schedutil).
-    verify_cap "$freq"; vrc=$?
-    if [ "$vrc" -eq 2 ]; then
-        ap=/sys/devices/system/cpu/amd_pstate/status
-        mode=""
-        [ -f "$ap" ] && mode=$(cat "$ap" 2>/dev/null)
-        if [ -n "$mode" ] && [ "$mode" != "passive" ]; then
-            echo "  cap not honored under amd-pstate '${mode}'; switching to passive and re-applying..." >&2
-            if echo passive > "$ap" 2>/dev/null && [ "$(cat "$ap" 2>/dev/null)" = "passive" ]; then
-                apply_policy_writes "$freq"
-                verify_cap "$freq"; vrc=$?
-                if [ "$vrc" -eq 0 ]; then
-                    echo "  OK: cap enforced after amd-pstate passive switch"
-                fi
-            else
-                echo "  WARN: amd-pstate mode switch to passive refused" >&2
-            fi
-        fi
-        if [ "$vrc" -eq 2 ]; then
-            echo "  ERROR: observed Bzy_MHz=${obs_mhz} exceeds cap $((freq / 1000)) (+5% tolerance)." >&2
-            echo "         The driver is ignoring scaling_max_freq (amd-pstate active mode)," >&2
-            echo "         and switching to passive did not help (or was refused)." >&2
-            echo "         Fix: boot with amd_pstate=disable (or amd_pstate=passive)," >&2
-            echo "              or hard-lock P-state via wrmsr 0xC0010062." >&2
-            echo "         State is left CLAMPED (boost off); run '$0 restore' to undo." >&2
-            exit 2
-        fi
-    fi
+    verify_with_retry "$freq"
 }
 
 cmd_restore() {
