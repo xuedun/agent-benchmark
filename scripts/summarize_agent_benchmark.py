@@ -198,6 +198,45 @@ def parse_elapsed(records: list[dict]) -> list[float]:
     return [(t - t0).total_seconds() for t in times]
 
 
+def cpu_saturation(records: list[dict], threshold: float = 99.0) -> tuple[float, float, float]:
+    """Duration the host cpu_pct stays >= threshold.
+
+    Each sample is attributed its FOLLOWING interval (ts[i+1]-ts[i]), so
+    irregular monitor cadence under load is handled honestly; the trailing
+    saturated sample gets the median interval. Returns
+    (total_saturated_s, longest_contiguous_streak_s, covered_span_s).
+    Caveat: when the monitor itself lags (long gaps under load), a saturated
+    sample carries the whole gap -- the estimate is an upper-ish bound."""
+    pts = []
+    for rec in records:
+        ts = rec.get("ts")
+        cpu = rec.get("cpu_pct")
+        if ts and isinstance(cpu, (int, float)):
+            try:
+                pts.append((datetime.fromisoformat(ts), float(cpu)))
+            except ValueError:
+                continue
+    if len(pts) < 2:
+        return 0.0, 0.0, 0.0
+    deltas = [(pts[i + 1][0] - pts[i][0]).total_seconds() for i in range(len(pts) - 1)]
+    ordered = sorted(deltas)
+    med = ordered[len(ordered) // 2]
+    total = covered = streak = best = 0.0
+    for i, d in enumerate(deltas):
+        covered += d
+        if pts[i][1] >= threshold:
+            total += d
+            streak += d
+            best = max(best, streak)
+        else:
+            streak = 0.0
+    if pts[-1][1] >= threshold:
+        total += med
+        covered += med
+        best = max(best, streak + med)
+    return total, best, covered
+
+
 def metrics_plot(records: list[dict], label: str, out_path: Path, n_vms: int) -> bool:
     if not records:
         return False
@@ -219,7 +258,14 @@ def metrics_plot(records: list[dict], label: str, out_path: Path, n_vms: int) ->
             ax_cpu.plot(xs_v, ys_v, linewidth=1.2, label=label_txt)
     ax_cpu.set_ylabel("CPU (%)")
     ax_cpu.set_ylim(0, 105)
-    ax_cpu.set_title(f"Host CPU & memory utilization - {label}" + (f" ({n_vms} VMs)" if n_vms else ""))
+    title = f"Host CPU & memory utilization - {label}" + (f" ({n_vms} VMs)" if n_vms else "")
+    sat_total, sat_streak, span = cpu_saturation(records)
+    if span > 0:
+        title += (f" | span {span:.0f}s, CPU>=99%: {sat_total:.0f}s"
+                  f" ({sat_total / span * 100:.1f}%), streak {sat_streak:.0f}s")
+        print(f"  cpu>=99%: {sat_total:.0f}s / {span:.0f}s span"
+              f" ({sat_total / span * 100:.1f}%), longest streak {sat_streak:.0f}s")
+    ax_cpu.set_title(title)
     ax_cpu.legend(loc="upper right")
     ax_cpu.grid(alpha=0.3)
 
