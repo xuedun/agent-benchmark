@@ -48,6 +48,11 @@ cmd_backup() {
     if [ -f /sys/devices/system/cpu/cpufreq/boost ]; then
         cat /sys/devices/system/cpu/cpufreq/boost > "$BACKUP_DIR/GLOBAL_BOOST"
     fi
+    # amd-pstate mode (active/passive/guided): we may switch to passive at
+    # runtime when the cap is ignored; restore the original mode on restore.
+    if [ -f /sys/devices/system/cpu/amd_pstate/status ]; then
+        cat /sys/devices/system/cpu/amd_pstate/status > "$BACKUP_DIR/AMD_PSTATE_STATUS"
+    fi
     for p in $(policies); do
         n=${p##*/}
         {
@@ -117,19 +122,37 @@ cmd_limit() {
         echo "re-clamping: ${prev} kHz -> ${freq} kHz"
         cmd_restore || die "restore of previous clamp (${prev} kHz) failed"
     fi
-    n_policies=$(policies | wc -l)
-    if [ "$n_policies" -eq 0 ]; then
-        die "no cpufreq policies found (cpufreq disabled?)"
-    fi
     enforce_clamp "$freq"
 }
 
-enforce_clamp() {
+verify_cap() {
+    # $1 = cap in kHz. Returns: 0 OK, 1 could not verify, 2 over cap.
+    # Sets global obs_mhz to the observed average frequency when measured.
     freq=$1
-    do_backup=${2:-backup}
-    if [ "$do_backup" = "backup" ]; then
-        cmd_backup
+    obs_mhz=""
+    if ! command -v turbostat >/dev/null 2>&1; then
+        echo "NOTE: turbostat not installed; cannot verify real frequency (scaling_cur_freq is a request value on amd-pstate)."
+        return 1
     fi
+    echo "verifying actual frequency with turbostat (3s under light load)..."
+    obs=$(turbostat --quiet --interval 1 --num_iterations 3 --show Bzy_MHz 2>/dev/null \
+          | awk 'NR>1 && $1+0>0 {s+=$1; n++} END {if (n) printf "%d", s/n}')
+    if [ -z "$obs" ]; then
+        echo "  WARN: turbostat produced no Bzy_MHz samples; verify manually" >&2
+        return 1
+    fi
+    obs_mhz=$obs
+    limit_mhz=$((freq / 1000))
+    if [ "$obs" -gt $((limit_mhz + limit_mhz / 20)) ]; then
+        return 2
+    fi
+    echo "  OK: Bzy_MHz=${obs} within cap ${limit_mhz}"
+    return 0
+}
+
+apply_policy_writes() {
+    # $1 = cap in kHz. Sets global mismatch.
+    freq=$1
     mismatch=0
     # Disable boost unconditionally on limit: a clamp is only meaningful if the CPU
     # cannot exceed the requested frequency. Leaving boost on lets the SMU
@@ -156,33 +179,58 @@ enforce_clamp() {
             fi
         fi
     done
+}
+
+enforce_clamp() {
+    freq=$1
+    do_backup=${2:-backup}
+    # Compute BEFORE any output references it: the idempotent re-enforce path
+    # (cmd_limit marker branch) reaches this function without passing through
+    # the original assignment, which crashed the script with
+    # "n_policies: unbound variable" under set -u (fixed 2026-11-18).
+    n_policies=$(policies | wc -l)
+    if [ "$n_policies" -eq 0 ]; then
+        die "no cpufreq policies found (cpufreq disabled?)"
+    fi
+    if [ "$do_backup" = "backup" ]; then
+        cmd_backup
+    fi
+    apply_policy_writes "$freq"
     echo "$freq" > "$MARKER"
     echo "clamped $n_policies policies to ${freq} kHz; boost DISABLED (governor untouched; backup: $BACKUP_DIR)"
     if [ "$mismatch" -gt 0 ]; then
         echo "NOTE: $mismatch policy(ies) did not land exactly on ${freq} kHz (driver snapped to an available P-state)."
     fi
-    # amd-pstate (Zen4) treats scaling_max_freq as a request, not a hard cap.
-    # Verify with real observed frequency when turbostat is available.
-    if command -v turbostat >/dev/null 2>&1; then
-        echo "verifying actual frequency with turbostat (3s under light load)..."
-        obs=$(turbostat --quiet --interval 1 --num_iterations 3 --show Bzy_MHz 2>/dev/null \
-              | awk 'NR>1 && $1+0>0 {s+=$1; n++} END {if (n) printf "%d", s/n}')
-        if [ -n "$obs" ]; then
-            limit_mhz=$((freq / 1000))
-            if [ "$obs" -gt $((limit_mhz + limit_mhz / 20)) ]; then
-                echo "  ERROR: observed Bzy_MHz=${obs} exceeds cap ${limit_mhz} (+5% tolerance)." >&2
-                echo "         The driver is ignoring scaling_max_freq (typical amd-pstate active mode)." >&2
-                echo "         Fix: boot with amd_pstate=disable (or =passive + userspace governor)," >&2
-                echo "              or hard-lock P-state via wrmsr 0xC0010062." >&2
-                echo "         State is left CLAMPED (boost off); run '$0 restore' to undo." >&2
-                exit 2
+    # amd-pstate (Zen4) active/guided mode treats scaling_max_freq as a request,
+    # not a hard cap. Verify the real observed frequency; if the cap is ignored
+    # and the mode is switchable, retry once under passive mode (where the
+    # kernel enforces policy->max through schedutil).
+    verify_cap "$freq"; vrc=$?
+    if [ "$vrc" -eq 2 ]; then
+        ap=/sys/devices/system/cpu/amd_pstate/status
+        mode=""
+        [ -f "$ap" ] && mode=$(cat "$ap" 2>/dev/null)
+        if [ -n "$mode" ] && [ "$mode" != "passive" ]; then
+            echo "  cap not honored under amd-pstate '${mode}'; switching to passive and re-applying..." >&2
+            if echo passive > "$ap" 2>/dev/null && [ "$(cat "$ap" 2>/dev/null)" = "passive" ]; then
+                apply_policy_writes "$freq"
+                verify_cap "$freq"; vrc=$?
+                if [ "$vrc" -eq 0 ]; then
+                    echo "  OK: cap enforced after amd-pstate passive switch"
+                fi
+            else
+                echo "  WARN: amd-pstate mode switch to passive refused" >&2
             fi
-            echo "  OK: Bzy_MHz=${obs} within cap ${limit_mhz}"
-        else
-            echo "  WARN: turbostat produced no Bzy_MHz samples; verify manually" >&2
         fi
-    else
-        echo "NOTE: turbostat not installed; cannot verify real frequency (scaling_cur_freq is a request value on amd-pstate)."
+        if [ "$vrc" -eq 2 ]; then
+            echo "  ERROR: observed Bzy_MHz=${obs_mhz} exceeds cap $((freq / 1000)) (+5% tolerance)." >&2
+            echo "         The driver is ignoring scaling_max_freq (amd-pstate active mode)," >&2
+            echo "         and switching to passive did not help (or was refused)." >&2
+            echo "         Fix: boot with amd_pstate=disable (or amd_pstate=passive)," >&2
+            echo "              or hard-lock P-state via wrmsr 0xC0010062." >&2
+            echo "         State is left CLAMPED (boost off); run '$0 restore' to undo." >&2
+            exit 2
+        fi
     fi
 }
 
@@ -218,6 +266,11 @@ cmd_restore() {
         fi
     done
     rm -f "$MARKER"
+    # restore amd-pstate mode LAST (policy attrs may need the driver present)
+    if [ -f "$BACKUP_DIR/AMD_PSTATE_STATUS" ] && [ -f /sys/devices/system/cpu/amd_pstate/status ]; then
+        echo "$(cat "$BACKUP_DIR/AMD_PSTATE_STATUS")" > /sys/devices/system/cpu/amd_pstate/status \
+            2>/dev/null || echo "  WARN: amd-pstate mode restore refused" >&2
+    fi
     echo "restored all policies from $BACKUP_DIR"
 }
 

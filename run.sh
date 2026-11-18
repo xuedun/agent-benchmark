@@ -43,9 +43,16 @@ apply_cell() {
     if [[ "$freq_arg" == "restore" ]]; then
         bash scripts/cpu_freq_clamp.sh restore || log "WARN: freq restore failed"
     else
-        if ! bash scripts/cpu_freq_clamp.sh limit "$freq_arg"; then
-            log "FATAL: freq clamp to ${freq_arg} kHz NOT honored (driver ignored the cap)."
-            log "       This cell would run at an uncontrolled frequency - aborting."
+        clamp_rc=0
+        bash scripts/cpu_freq_clamp.sh limit "$freq_arg" || clamp_rc=$?
+        if [[ "$clamp_rc" -ne 0 ]]; then
+            if [[ "$clamp_rc" -eq 2 ]]; then
+                log "FATAL: freq clamp to ${freq_arg} kHz NOT honored (driver ignored the cap)."
+                log "       This cell would run at an uncontrolled frequency - aborting."
+            else
+                log "FATAL: freq clamp script failed rc=${clamp_rc} (script/permission error, NOT a cap issue)."
+                log "       See clamp output above; aborting."
+            fi
             bash scripts/cpu_freq_clamp.sh restore || true
             exit 3
         fi
