@@ -50,6 +50,9 @@ class ReplayOptions:
     event_loop: str = "uvloop"
     skip_delays: bool = False
     post_run_drop_caches: bool = False
+    proxy_read_enabled: bool = True
+    proxy_read_fallback: bool = True
+    proxy_read_retry_timeout_sec: float = 30.0
 
 
 def event_loop_metadata() -> dict[str, str]:
@@ -67,7 +70,7 @@ def trial_limits(
     total_multiplier: int = 1,
     early_stop_rounds: int | None = None,
 ) -> dict[str, Any]:
-    if mode not in ("pause-resume", "continuous"):
+    if mode not in ("pause-resume", "continuous", "proxy-sandbox"):
         raise ValueError(f"Unknown execution mode: {mode}")
     if base_count < 1 or ratio < 1 or total_multiplier < 1:
         raise ValueError("base-count, ratio and total-multiplier must be positive")

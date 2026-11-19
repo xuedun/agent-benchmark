@@ -58,7 +58,7 @@ async def run_batch(
         )
     if concurrency < 1 or not 1 <= running_concurrency <= concurrency:
         raise ValueError("1 <= running-concurrency <= concurrency is required")
-    if mode not in ("pause-resume", "continuous"):
+    if mode not in ("pause-resume", "continuous", "proxy-sandbox"):
         raise ValueError(f"Unknown mode: {mode}")
     if process_count is not None:
         if (process_count < 1 or workers_per_process is None or workers_per_process < 1

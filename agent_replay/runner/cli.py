@@ -76,7 +76,28 @@ def connection_arguments(parser: argparse.ArgumentParser) -> None:
 
 def replay_arguments(parser: argparse.ArgumentParser) -> None:
     connection_arguments(parser)
-    parser.add_argument("--mode", choices=("pause-resume", "continuous"), required=True)
+    parser.add_argument(
+        "--mode", choices=("pause-resume", "continuous", "proxy-sandbox"), required=True
+    )
+    parser.add_argument(
+        "--proxy-read-disable",
+        action="store_true",
+        help="proxy-sandbox mode: route every action through the resume path "
+             "(baseline comparison without proxy traffic)",
+    )
+    parser.add_argument(
+        "--proxy-read-no-fallback",
+        action="store_true",
+        help="proxy-sandbox mode: fail the step instead of falling back to the "
+             "resume path when proxy-read errors",
+    )
+    parser.add_argument(
+        "--proxy-read-retry-timeout-sec",
+        type=nonnegative_float,
+        default=30.0,
+        help="proxy-sandbox mode: total retry budget for 503 rebind-in-progress "
+             "responses (default: 30)",
+    )
     parser.add_argument(
         "--mock", action="store_true",
         help="Replay real trajectories against a local success-only sandbox; disables monitoring",
@@ -272,6 +293,9 @@ def options_from_args(args: argparse.Namespace) -> ReplayOptions:
         event_loop=args.event_loop,
         skip_delays=args.skip_delays,
         post_run_drop_caches=args.post_run_drop_caches,
+        proxy_read_enabled=not args.proxy_read_disable,
+        proxy_read_fallback=not args.proxy_read_no_fallback,
+        proxy_read_retry_timeout_sec=args.proxy_read_retry_timeout_sec,
     )
 
 

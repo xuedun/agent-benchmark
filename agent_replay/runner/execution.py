@@ -95,7 +95,14 @@ class LocalExecution:
         self.emit("job.log", job_log_line(level, message, timestamp=timestamp))
 
     async def _worker(self):
-        runner_type = PauseResumeRunner if self.mode == "pause-resume" else ContinuousRunner
+        if self.mode == "pause-resume":
+            runner_type = PauseResumeRunner
+        elif self.mode == "proxy-sandbox":
+            from .replay.proxy_sandbox import ProxySandboxRunner
+
+            runner_type = ProxySandboxRunner
+        else:
+            runner_type = ContinuousRunner
         for task in self._pending:
             task_dir = task_directory(self.output_dir, task)
             result_path = task_dir / "replay-result.json"
