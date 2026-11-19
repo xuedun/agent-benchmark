@@ -7,6 +7,18 @@ source .venv/bin/activate
 
 RATIOS=(8 1)
 MULTIPLIERS=(1 2)
+# Constant-pressure early-stop mode (python -m agent_replay.runner bench
+# --early-stop-rounds): unbounded task pool, finished VMs always replaced,
+# ends when every selection slot completes N successful rounds. When set,
+# --total-multiplier is ignored by the runner, so the MULTIPLIERS loop below
+# is collapsed to a single pass.
+EARLY_STOP_ROUNDS=${EARLY_STOP_ROUNDS:-}
+EXTRA_BENCH_ARGS=()
+if [[ -n "$EARLY_STOP_ROUNDS" ]]; then
+    MULTIPLIERS=(1)
+    EXTRA_BENCH_ARGS+=(--early-stop-rounds "$EARLY_STOP_ROUNDS")
+    log "early-stop mode: rounds=$EARLY_STOP_ROUNDS (MULTIPLIERS ignored, single pass)"
+fi
 CELLS=(
     "16way 0xFFFF 4.2fre restore"
     "11way 0xFFE0 4.2fre restore"
@@ -103,7 +115,8 @@ for MULT in "${MULTIPLIERS[@]}"; do
         --command-timeout-continue \
         --command-timeout-sec "$COMMAND_TIMEOUT_SEC" \
         --launch-interval-sec "$LAUNCH_INTERVAL" \
-        --output-dir "$OUT"
+        --output-dir "$OUT" \
+        "${EXTRA_BENCH_ARGS[@]}"
       log "END ratio=$RATIO mult=$MULT cell=${WAY}_${FRE} exit=$?"
       if [[ -n "$COLLECT_PID" ]]; then
           kill -TERM "$COLLECT_PID" 2>/dev/null

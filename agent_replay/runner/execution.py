@@ -7,6 +7,7 @@ from array import array
 import logging
 from pathlib import Path
 import re
+import shutil
 import time
 from dataclasses import replace
 from typing import Callable
@@ -19,6 +20,8 @@ from .replay.pause_resume import PauseResumeRunner
 from .running_scheduler import RunningSlotScheduler
 
 LOGGER = logging.getLogger(__name__)
+
+TaskCompletedCallback = Callable[[ReplayTask, dict], None]
 
 
 async def finish_cleanup(task: asyncio.Task):
@@ -42,18 +45,31 @@ def task_directory(output_dir: Path, task: ReplayTask) -> Path:
 
 class LocalExecution:
     def __init__(
-        self, tasks: list[ReplayTask], *, mode: str, concurrency: int,
+        self, tasks, *, mode: str, concurrency: int,
         running_concurrency: int, options: ReplayOptions, output_dir: Path,
         launch_interval_sec: float = 0, total_tasks: int | None = None,
         emit: Callable[[str, str], None] | None = None, launch_gate=None,
         record_running_events: bool = False,
+        early_stop: bool = False,
+        on_task_completed: TaskCompletedCallback | None = None,
     ):
         self.tasks = tasks
         self.mode = mode
         self.concurrency = concurrency
         self.options = options
         self.output_dir = output_dir
-        self.total_tasks = len(tasks) if total_tasks is None else total_tasks
+        if total_tasks is not None:
+            self.total_tasks = total_tasks
+        elif isinstance(tasks, list):
+            self.total_tasks = len(tasks)
+        else:
+            self.total_tasks = None
+        self.unbounded = self.total_tasks is None
+        self.early_stop = early_stop
+        self.on_task_completed = on_task_completed
+        #: Set by the parent when a STOP carries a reason; "rounds" makes the
+        #: cleanup drop incomplete task directories (early-stop discard policy).
+        self.stop_reason: str | None = None
         self.emit = emit or (lambda name, line: append_text(output_dir / name, line))
         self.launch_gate = launch_gate
         self.launch_interval_sec = launch_interval_sec
@@ -70,6 +86,10 @@ class LocalExecution:
         self._pending = iter(tasks)
         self._launch_lock = asyncio.Lock()
         self._next_launch = 0.0
+        self._active_dirs: dict[int, Path] = {}
+
+    def _progress_total(self) -> str:
+        return "unbounded" if self.unbounded else str(self.total_tasks)
 
     def job_event(self, level: str, message: str, *, timestamp: str | None = None):
         self.emit("job.log", job_log_line(level, message, timestamp=timestamp))
@@ -80,6 +100,8 @@ class LocalExecution:
             task_dir = task_directory(self.output_dir, task)
             result_path = task_dir / "replay-result.json"
             result = {}
+            interrupted = False
+            self._active_dirs[task.task_index] = task_dir
             try:
                 if self.launch_gate is not None:
                     await self.launch_gate(task.task_index)
@@ -87,9 +109,9 @@ class LocalExecution:
                     async with self._launch_lock:
                         await asyncio.sleep(max(0.0, self._next_launch - time.monotonic()))
                         self._next_launch = time.monotonic() + self.launch_interval_sec
-                LOGGER.info("Starting %d/%d: %s cycle=%d", task.task_index,
-                            self.total_tasks, task.source_trajectory.name, task.occurrence)
-                self.job_event("info", f"[{task.task_index}/{self.total_tasks}] Replay job started "
+                LOGGER.info("Starting %d/%s: %s cycle=%d", task.task_index,
+                            self._progress_total(), task.source_trajectory.name, task.occurrence)
+                self.job_event("info", f"[{task.task_index}/{self._progress_total()}] Replay job started "
                                f"workload=slot-{task.selection_index:04d} template={task.template} "
                                f"trajectory={task.source_trajectory} "
                                f"source_index=1 cycle={task.occurrence} occurrence={task.occurrence} "
@@ -100,10 +122,11 @@ class LocalExecution:
                     loop_scheduling_recorder=self.recorder,
                 )
                 result = await runner.run()
-                LOGGER.info("Completed %d/%d: %s succeeded=%s commands=%s failed=%s",
-                            task.task_index, self.total_tasks, task.source_trajectory.name,
+                LOGGER.info("Completed %d/%s: %s succeeded=%s commands=%s failed=%s",
+                            task.task_index, self._progress_total(), task.source_trajectory.name,
                             result.get("succeeded"), result.get("commands"), result.get("failed_commands"))
             except asyncio.CancelledError:
+                interrupted = True
                 result = read_json(result_path) if result_path.exists() else {
                     "succeeded": False, "replay_completed": False, "error": "Cancelled before replay",
                 }
@@ -120,12 +143,17 @@ class LocalExecution:
                     "replay_completed": bool(result.get("replay_completed")),
                     "elapsed_sec": result.get("elapsed_sec"),
                     "error": result.get("error") or result.get("cleanup_error"),
+                    "interrupted": interrupted,
                 }
                 self.items.append(item)
+                if not interrupted:
+                    # Interrupted tasks keep their dir listed so the rounds-stop
+                    # cleanup can discard it; completed tasks release theirs.
+                    self._active_dirs.pop(task.task_index, None)
                 if not item["error"]:
                     status, explanation = replay_outcome(result)
                     self.job_event("info" if item["succeeded"] else "warning",
-                                   f"[{task.task_index}/{self.total_tasks}] Replay job completed "
+                                   f"[{task.task_index}/{self._progress_total()}] Replay job completed "
                                    f"status={status} commands={result.get('commands')} "
                                    f"succeeded={result.get('succeeded_commands')} "
                                    f"failed={result.get('failed_commands')} "
@@ -134,20 +162,33 @@ class LocalExecution:
                                    f"summary={explanation} result={result_path}",
                                    timestamp=result.get("completed_at"))
                 else:
-                    self.job_event("error", f"[{task.task_index}/{self.total_tasks}] Replay job failed "
+                    self.job_event("error", f"[{task.task_index}/{self._progress_total()}] Replay job failed "
                                    f"trajectory={task.source_trajectory} "
                                    f"error={item['error']} result={result_path}")
                 self.emit("run.log", job_log_line(
                     "info" if item["succeeded"] else "error",
                     f"task={task.task_index} succeeded={item['succeeded']} error={item['error']}",
                 ))
+                if self.on_task_completed is not None:
+                    try:
+                        self.on_task_completed(task, item)
+                    except Exception:
+                        LOGGER.exception("task-completed callback failed")
             # Uncertain cleanup closes admission for the entire trial, not just this shard.
             if self.scheduler.closed:
                 raise RuntimeError("Running scheduler closed after unsafe sandbox cleanup")
+            if (self.early_stop and not item["succeeded"] and not interrupted
+                    and self.stop_reason is None):
+                raise RuntimeError(
+                    f"Early-stop mode: task {task.task_index} failed "
+                    f"({item['error'] or 'replay not completed'}); aborting the experiment"
+                )
 
     async def run(self):
+        worker_count = (self.concurrency if self.unbounded
+                        else min(self.concurrency, len(self.tasks)))
         workers = [asyncio.create_task(self._worker())
-                   for _ in range(min(self.concurrency, len(self.tasks)))]
+                   for _ in range(worker_count)]
         group = asyncio.gather(*workers)
         try:
             await asyncio.shield(group)
@@ -161,13 +202,40 @@ class LocalExecution:
                 await asyncio.gather(*workers, return_exceptions=True)
                 if group.done() and not group.cancelled():
                     group.exception()
+                # Every worker has exited; a lease still active here was
+                # abandoned when a cancelled runner's release raced with the
+                # cancellation itself. Force-release so the snapshot reflects
+                # reality (the rounds-stop path relies on active == 0).
+                if self.scheduler._active:
+                    abandoned = [lease.task_id for lease in self.scheduler._active.values()]
+                    LOGGER.warning("Force-releasing abandoned running leases: %s", abandoned)
+                    for lease in list(self.scheduler._active.values()):
+                        if not lease.released:
+                            await lease.release()
                 self.snapshot = self.scheduler.snapshot()
                 await self.scheduler.close()
+                if self.stop_reason == "rounds":
+                    await self._discard_incomplete_dirs()
 
             _, cancelled = await finish_cleanup(asyncio.create_task(cleanup()))
             if cancelled:
                 self.failure = asyncio.CancelledError()
         return self
+
+    async def _discard_incomplete_dirs(self):
+        """Early-stop discard policy: remove task dirs still marked active
+        (in-flight when the rounds target was reached) so they never enter
+        statistics."""
+        if not self._active_dirs:
+            return
+        stale = sorted(self._active_dirs.items())
+        for task_index, task_dir in stale:
+            try:
+                await asyncio.to_thread(shutil.rmtree, task_dir, True)
+                self.items = [x for x in self.items if x["task_index"] != task_index]
+                LOGGER.info("Discarded in-flight task dir %s", task_dir)
+            except Exception as exc:
+                LOGGER.error("Failed to discard in-flight task dir %s: %s", task_dir, exc)
 
     async def flush(self, output_dir: Path) -> dict | None:
         if self.recorder is None:
