@@ -197,7 +197,12 @@ async def one_trial(tpl, mem_mb, file_mb, cache_clean, out_jsonl, trial_id):
             if "BG_STARTED" not in out:
                 rec["error"] = f"mem dirty failed rc={rc}"
                 return rec
-            time.sleep(2)  # let the touch loop run
+            # poll for the touch loop's completion marker (fast, deterministic)
+            for _ in range(20):
+                out2, _ = await sb_run(sb, "cat /tmp/memdirty.log 2>/dev/null")
+                if "MEMDIRTY_OK" in (out2 or ""):
+                    break
+                await asyncio.sleep(0.5)
         # verify dirty state
         out, _ = await sb_run(
             sb, "grep -E 'AnonPages|^Dirty' /proc/meminfo")
@@ -218,7 +223,6 @@ async def one_trial(tpl, mem_mb, file_mb, cache_clean, out_jsonl, trial_id):
         ws = wait_state(sid, "paused", timeout=1200)
         rec["pause_total_ms"] = round((time.time() - t0) * 1000)
         rec["pause_state_reached"] = ws is not None
-        time.sleep(1)
         rec["snapshot_bytes"] = snapshot_bytes_since(marker)
         try:
             os.unlink(marker)
@@ -246,7 +250,8 @@ async def one_trial(tpl, mem_mb, file_mb, cache_clean, out_jsonl, trial_id):
         # reconnect with patience (a paused->resumed sandbox's envd needs a
         # moment to accept connections again)
         try:
-            sb2 = await connect_with_patience(sid, total_patience=90.0)
+            sb2 = await connect_with_patience(sid, total_patience=60.0,
+                                              interval=1.0)
             out, rc = await sb_run(sb2, "echo ALIVE_OK", timeout=120)
             rec["alive_after_resume"] = "ALIVE_OK" in out
             if mem_mb > 0:
@@ -264,7 +269,7 @@ async def one_trial(tpl, mem_mb, file_mb, cache_clean, out_jsonl, trial_id):
             except Exception:
                 pass
             # drain
-            for _ in range(30):
+            for _ in range(8):
                 try:
                     d = api("GET", f"/sandboxes/{sid}", timeout=10)
                     if not d or "sandboxID" not in json.dumps(d):
@@ -293,9 +298,12 @@ async def main():
     p.add_argument("--repeats", type=int, default=1)
     p.add_argument("--out", default="/home/cxd/aenv-perf/data/dirty_pause")
     p.add_argument("--cache-clean", choices=("drop", "sync", "none"),
-                   default="drop",
-                   help="drop: echo 3 > drop_caches (cold resume); "
-                        "sync: writeback only (warm resume); none: untouched")
+                   default="none",
+                   help="none (default, fast): untouched. drop: global sync + "
+                        "echo 3 > drop_caches -- SLOW on big shared machines "
+                        "(sync flushes the whole host) and slows other tenants; "
+                        "use only when cold-resume measurement is required. "
+                        "sync: writeback only")
     p.add_argument("--api-key-file", default="/data/aenv/secrets/api-key")
     args = p.parse_args()
     if os.environ.get("E2B_DEBUG_HTTP"):
