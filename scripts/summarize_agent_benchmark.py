@@ -198,15 +198,18 @@ def parse_elapsed(records: list[dict]) -> list[float]:
     return [(t - t0).total_seconds() for t in times]
 
 
-def cpu_saturation(records: list[dict], threshold: float = 99.0) -> tuple[float, float, float]:
-    """Duration the host cpu_pct stays >= threshold.
+def cpu_saturation(records: list[dict], threshold: float = 99.0) -> tuple[float, float, float, float]:
+    """Duration the host cpu_pct stays >= threshold, plus the time-weighted
+    average cpu_pct.
 
     Each sample is attributed its FOLLOWING interval (ts[i+1]-ts[i]), so
     irregular monitor cadence under load is handled honestly; the trailing
     saturated sample gets the median interval. Returns
-    (total_saturated_s, longest_contiguous_streak_s, covered_span_s).
+    (total_saturated_s, longest_contiguous_streak_s, covered_span_s,
+    weighted_avg_cpu_pct).
     Caveat: when the monitor itself lags (long gaps under load), a saturated
-    sample carries the whole gap -- the estimate is an upper-ish bound."""
+    sample carries the whole gap -- the saturation estimate is an upper-ish
+    bound."""
     pts = []
     for rec in records:
         ts = rec.get("ts")
@@ -217,13 +220,14 @@ def cpu_saturation(records: list[dict], threshold: float = 99.0) -> tuple[float,
             except ValueError:
                 continue
     if len(pts) < 2:
-        return 0.0, 0.0, 0.0
+        return 0.0, 0.0, 0.0, 0.0
     deltas = [(pts[i + 1][0] - pts[i][0]).total_seconds() for i in range(len(pts) - 1)]
     ordered = sorted(deltas)
     med = ordered[len(ordered) // 2]
-    total = covered = streak = best = 0.0
+    total = covered = streak = best = weighted = 0.0
     for i, d in enumerate(deltas):
         covered += d
+        weighted += pts[i][1] * d
         if pts[i][1] >= threshold:
             total += d
             streak += d
@@ -234,7 +238,9 @@ def cpu_saturation(records: list[dict], threshold: float = 99.0) -> tuple[float,
         total += med
         covered += med
         best = max(best, streak + med)
-    return total, best, covered
+    weighted += pts[-1][1] * med
+    avg = weighted / covered if covered > 0 else 0.0
+    return total, best, covered, avg
 
 
 def metrics_plot(records: list[dict], label: str, out_path: Path, n_vms: int) -> bool:
@@ -259,12 +265,14 @@ def metrics_plot(records: list[dict], label: str, out_path: Path, n_vms: int) ->
     ax_cpu.set_ylabel("CPU (%)")
     ax_cpu.set_ylim(0, 105)
     title = f"Host CPU & memory utilization - {label}" + (f" ({n_vms} VMs)" if n_vms else "")
-    sat_total, sat_streak, span = cpu_saturation(records)
+    sat_total, sat_streak, span, avg_cpu = cpu_saturation(records)
     if span > 0:
-        title += (f" | span {span:.0f}s, CPU>=99%: {sat_total:.0f}s"
-                  f" ({sat_total / span * 100:.1f}%), streak {sat_streak:.0f}s")
-        print(f"  cpu>=99%: {sat_total:.0f}s / {span:.0f}s span"
-              f" ({sat_total / span * 100:.1f}%), longest streak {sat_streak:.0f}s")
+        title += (f" | span {span:.0f}s, avg CPU {avg_cpu:.1f}%,"
+                  f" CPU>=99%: {sat_total:.0f}s ({sat_total / span * 100:.1f}%),"
+                  f" streak {sat_streak:.0f}s")
+        print(f"  cpu: avg {avg_cpu:.1f}% (time-weighted); >=99%: {sat_total:.0f}s /"
+              f" {span:.0f}s span ({sat_total / span * 100:.1f}%),"
+              f" longest streak {sat_streak:.0f}s")
     ax_cpu.set_title(title)
     ax_cpu.legend(loc="upper right")
     ax_cpu.grid(alpha=0.3)
