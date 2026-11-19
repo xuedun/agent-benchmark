@@ -150,7 +150,14 @@ async def one_trial(tpl, mem_mb, file_mb, cache_clean, out_jsonl, trial_id):
     rec = {"trial": trial_id, "template": tpl, "mem_mb": mem_mb,
            "file_mb": file_mb, "t_start": time.time()}
     sid = None
+
+    def prog(step, extra=""):
+        dt = time.time() - rec["t_start"]
+        print(f"    [t+{dt:5.1f}s] {step}{(' ' + extra) if extra else ''}",
+              flush=True)
+
     try:
+        prog("create...")
         # 1. create
         t0 = time.time()
         d = api("POST", "/sandboxes",
@@ -164,6 +171,7 @@ async def one_trial(tpl, mem_mb, file_mb, cache_clean, out_jsonl, trial_id):
         if ws is None:
             rec["error"] = "never reached running"
             return rec
+        prog("connect (envd)...")
         # connect ONCE with patience (envd boot takes seconds; failed
         # connect attempts trigger server-side auto-pause -- be patient)
         try:
@@ -179,6 +187,7 @@ async def one_trial(tpl, mem_mb, file_mb, cache_clean, out_jsonl, trial_id):
 
         # 2. inject dirty
         if file_mb > 0:
+            prog(f"file dirty {file_mb}MB...")
             kb = max(1, round(file_mb * 1024))
             t0 = time.time()
             out, rc = await sb_run(
@@ -190,6 +199,7 @@ async def one_trial(tpl, mem_mb, file_mb, cache_clean, out_jsonl, trial_id):
                 rec["error"] = f"file dirty failed rc={rc}"
                 return rec
         if mem_mb > 0:
+            prog(f"mem dirty {mem_mb}MB...")
             t0 = time.time()
             out, rc = await sb_run(
                 sb, MEM_DIRTY_SH.format(mb=mem_mb).replace("\n", " "))
@@ -203,6 +213,7 @@ async def one_trial(tpl, mem_mb, file_mb, cache_clean, out_jsonl, trial_id):
                 if "MEMDIRTY_OK" in (out2 or ""):
                     break
                 await asyncio.sleep(0.5)
+        prog("verify meminfo...")
         # verify dirty state
         out, _ = await sb_run(
             sb, "grep -E 'AnonPages|^Dirty' /proc/meminfo")
@@ -211,6 +222,7 @@ async def one_trial(tpl, mem_mb, file_mb, cache_clean, out_jsonl, trial_id):
             rec[f"guest_{k.strip()}"] = int(v.strip().split()[0]) // 1024  # MiB
 
         # 3. pause (timed)
+        prog("PAUSE (timed)...")
         marker = f"/tmp/dp_marker_{int(time.time())}"
         Path(marker).touch()
         t0 = time.time()
@@ -229,11 +241,13 @@ async def one_trial(tpl, mem_mb, file_mb, cache_clean, out_jsonl, trial_id):
         except OSError:
             pass
 
+        prog(f"snap={rec.get('snapshot_bytes', 0) / 2**20:.1f}MB; cache clean ({cache_clean})...")
         # 4. clean host page cache (cold-resume arm)
         t0 = time.time()
         clean_host_cache(cache_clean)
         rec["cache_clean_s"] = round(time.time() - t0, 1)
 
+        prog("RESUME (timed)...")
         # 5. resume (timed)
         t0 = time.time()
         try:
@@ -246,6 +260,7 @@ async def one_trial(tpl, mem_mb, file_mb, cache_clean, out_jsonl, trial_id):
         rec["resume_total_ms"] = round((time.time() - t0) * 1000)
         rec["resume_state_reached"] = ws is not None
 
+        prog("alive check (reconnect)...")
         # 6. verify alive: the pre-pause session is dead after pause/resume;
         # reconnect with patience (a paused->resumed sandbox's envd needs a
         # moment to accept connections again)
@@ -264,6 +279,7 @@ async def one_trial(tpl, mem_mb, file_mb, cache_clean, out_jsonl, trial_id):
         rec["error"] = f"{type(e).__name__}: {e}"
     finally:
         if sid:
+            prog("delete...")
             try:
                 api("DELETE", f"/sandboxes/{sid}", timeout=120)
             except Exception:
