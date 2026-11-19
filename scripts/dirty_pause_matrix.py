@@ -66,27 +66,26 @@ def wait_state(sid, target, timeout=900, poll=0.1):
     return None
 
 
-def snapshot_bytes_since(marker, base="/data/aenv/snapshot-store"):
-    """Best-effort: total bytes of snapshot dirs newer than marker file."""
-    try:
-        out = subprocess.run(
-            ["find", base, "-mindepth", "1", "-maxdepth", "3", "-newer", marker,
-             "-type", "d"],
-            capture_output=True, text=True, timeout=30).stdout.split()
-        if not out:
-            return 0
-        total = 0
-        for d in out:
-            try:
-                du = subprocess.run(["du", "-sb", d], capture_output=True,
-                                    text=True, timeout=30).stdout.split()[0]
-                total += int(du)
-            except Exception:
-                pass
-        # nested dirs double-count with du; approximate by using max single gen
-        return total
-    except Exception:
-        return 0
+def snapshot_artifact_stats(sid, base="/data/aenv/persisted-sandboxes/artifacts"):
+    """Size breakdown of this sandbox's pause artifacts (real path: the
+    persisted-sandboxes artifact root, NOT the snapshot-store repository).
+
+    Live pause artifacts: vm_state.bin + mem_overlaybd/overlaybd.commit
+    (memory diff layer) + rootfs/snapshot.commit (sealed upper layer).
+    Returns (total_bytes, {component: bytes})."""
+    root = Path(base) / sid
+    comp = {}
+    if not root.is_dir():
+        return 0, comp
+    for p in root.rglob("*"):
+        if p.is_file():
+            comp[str(p.relative_to(root))] = p.stat().st_size
+    return sum(comp.values()), comp
+
+
+def snapshot_bytes_since(marker, base="/data/aenv/persisted-sandboxes/artifacts"):
+    """Legacy helper kept for compatibility; see snapshot_artifact_stats."""
+    return 0
 
 
 def clean_host_cache(mode):
@@ -238,7 +237,14 @@ async def one_trial(tpl, mem_mb, file_mb, cache_clean, out_jsonl, trial_id):
         ws = wait_state(sid, "paused", timeout=30 if pause_failed else 1200)
         rec["pause_total_ms"] = round((time.time() - t0) * 1000)
         rec["pause_state_reached"] = ws is not None
-        rec["snapshot_bytes"] = snapshot_bytes_since(marker)
+        total_b, comp = snapshot_artifact_stats(sid)
+        rec["snapshot_bytes"] = total_b
+        rec["snapshot_mem_layer_bytes"] = next(
+            (v for k, v in comp.items() if "mem_overlaybd" in k), 0)
+        rec["snapshot_rootfs_layer_bytes"] = next(
+            (v for k, v in comp.items() if k.endswith("rootfs/snapshot.commit")), 0)
+        rec["snapshot_vm_state_bytes"] = next(
+            (v for k, v in comp.items() if k.endswith("vm_state.bin")), 0)
         try:
             os.unlink(marker)
         except OSError:
@@ -380,17 +386,20 @@ async def main():
         if r.get("pause_total_ms") is not None:
             agg[(r["mem_mb"], r["file_mb"])].append(r)
     lines = [f"# dirty-pause matrix: template={args.template} "
-             f"cache_clean={args.cache_clean} reps={args.repeats}",
-             f"{'mem_mb':>8}{'file_mb':>9}{'n':>3}{'pause_ms':>12}{'resume_ms':>12}"
-             f"{'snap_MB':>10}{'err':>5}"]
+              f"cache_clean={args.cache_clean} reps={args.repeats}",
+              f"{'mem_mb':>8}{'file_mb':>9}{'n':>3}{'pause_ms':>12}{'resume_ms':>12}"
+              f"{'snap_MB':>10}{'memly_MB':>10}{'rootfs_MB':>10}{'err':>5}"]
     for (m, f_), rs in sorted(agg.items()):
         pm = [r["pause_total_ms"] for r in rs]
         rm = [r["resume_total_ms"] for r in rs]
         sn = [r.get("snapshot_bytes", 0) / 2**20 for r in rs]
+        ml = [r.get("snapshot_mem_layer_bytes", 0) / 2**20 for r in rs]
+        rl = [r.get("snapshot_rootfs_layer_bytes", 0) / 2**20 for r in rs]
         errs = sum(1 for r in rs if r.get("error"))
         lines.append(f"{m:>8}{f_:>9}{len(rs):>3}"
-                     f"{st.mean(pm):>12.0f}{st.mean(rm):>12.0f}"
-                     f"{st.mean(sn):>10.1f}{errs:>5}")
+                      f"{st.mean(pm):>12.0f}{st.mean(rm):>12.0f}"
+                      f"{st.mean(sn):>10.1f}{st.mean(ml):>10.1f}"
+                      f"{st.mean(rl):>10.1f}{errs:>5}")
     (outdir / "summary.txt").write_text("\n".join(lines) + "\n")
     print("\n".join(lines), flush=True)
 
