@@ -302,8 +302,8 @@ async def main():
         logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(name)s %(message)s")
     KEY = open(args.api_key_file).read().strip()
 
-    mem_sizes = [int(x) for x in args.mem_sizes.split(",") if x.strip()]
-    file_sizes = [int(x) for x in args.file_sizes.split(",") if x.strip()]
+    mem_sizes = [float(x) for x in args.mem_sizes.split(",") if x.strip()]
+    file_sizes = [float(x) for x in args.file_sizes.split(",") if x.strip()]
     outdir = Path(args.out)
     outdir.mkdir(parents=True, exist_ok=True)
     out_jsonl = outdir / "results.jsonl"
