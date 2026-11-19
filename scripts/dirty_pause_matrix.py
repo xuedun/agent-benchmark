@@ -221,18 +221,21 @@ async def one_trial(tpl, mem_mb, file_mb, cache_clean, out_jsonl, trial_id):
             k, v = line.split(":", 1)
             rec[f"guest_{k.strip()}"] = int(v.strip().split()[0]) // 1024  # MiB
 
-        # 3. pause (timed)
+        # 3. pause (timed): pause takes no request body
         prog("PAUSE (timed)...")
         marker = f"/tmp/dp_marker_{int(time.time())}"
         Path(marker).touch()
         t0 = time.time()
+        pause_failed = False
         try:
             api("POST", f"/sandboxes/{sid}/pause", timeout=1200)
             rec["pause_api_ms"] = round((time.time() - t0) * 1000)
         except urllib.error.HTTPError as e:
             rec["pause_api_ms"] = round((time.time() - t0) * 1000)
             rec["pause_http_error"] = e.code
-        ws = wait_state(sid, "paused", timeout=1200)
+            pause_failed = True
+        # if the API call itself was rejected, do not burn the full timeout
+        ws = wait_state(sid, "paused", timeout=30 if pause_failed else 1200)
         rec["pause_total_ms"] = round((time.time() - t0) * 1000)
         rec["pause_state_reached"] = ws is not None
         rec["snapshot_bytes"] = snapshot_bytes_since(marker)
@@ -248,15 +251,21 @@ async def one_trial(tpl, mem_mb, file_mb, cache_clean, out_jsonl, trial_id):
         rec["cache_clean_s"] = round(time.time() - t0, 1)
 
         prog("RESUME (timed)...")
-        # 5. resume (timed)
+        # 5. resume (timed): resume REQUIRES a JSON body (ResumedSandbox);
+        # an empty body is rejected with 415 and the resume never runs.
+        # `timeout` is the sandbox TTL after resume (default 15s -> auto
+        # eviction mid-trial), so keep it aligned with the create TTL.
         t0 = time.time()
+        resume_failed = False
         try:
-            api("POST", f"/sandboxes/{sid}/resume", timeout=1200)
+            api("POST", f"/sandboxes/{sid}/resume", {"timeout": 7200},
+                timeout=1200)
             rec["resume_api_ms"] = round((time.time() - t0) * 1000)
         except urllib.error.HTTPError as e:
             rec["resume_api_ms"] = round((time.time() - t0) * 1000)
             rec["resume_http_error"] = e.code
-        ws = wait_state(sid, "running", timeout=1200)
+            resume_failed = True
+        ws = wait_state(sid, "running", timeout=30 if resume_failed else 1200)
         rec["resume_total_ms"] = round((time.time() - t0) * 1000)
         rec["resume_state_reached"] = ws is not None
 
@@ -264,17 +273,21 @@ async def one_trial(tpl, mem_mb, file_mb, cache_clean, out_jsonl, trial_id):
         # 6. verify alive: the pre-pause session is dead after pause/resume;
         # reconnect with patience (a paused->resumed sandbox's envd needs a
         # moment to accept connections again)
-        try:
-            sb2 = await connect_with_patience(sid, total_patience=60.0,
-                                              interval=1.0)
-            out, rc = await sb_run(sb2, "echo ALIVE_OK", timeout=120)
-            rec["alive_after_resume"] = "ALIVE_OK" in out
-            if mem_mb > 0:
-                out2, _ = await sb_run(sb2, "cat /tmp/memdirty.log 2>/dev/null")
-                rec["memdirty_held"] = "MEMDIRTY_OK" in (out2 or "")
-        except Exception as e:
+        if resume_failed or ws is None:
             rec["alive_after_resume"] = False
-            rec["alive_check_error"] = f"{type(e).__name__}"
+            rec["alive_check_error"] = "skipped: resume did not run"
+        else:
+            try:
+                sb2 = await connect_with_patience(sid, total_patience=60.0,
+                                                  interval=1.0)
+                out, rc = await sb_run(sb2, "echo ALIVE_OK", timeout=120)
+                rec["alive_after_resume"] = "ALIVE_OK" in out
+                if mem_mb > 0:
+                    out2, _ = await sb_run(sb2, "cat /tmp/memdirty.log 2>/dev/null")
+                    rec["memdirty_held"] = "MEMDIRTY_OK" in (out2 or "")
+            except Exception as e:
+                rec["alive_after_resume"] = False
+                rec["alive_check_error"] = f"{type(e).__name__}"
     except Exception as e:
         rec["error"] = f"{type(e).__name__}: {e}"
     finally:
