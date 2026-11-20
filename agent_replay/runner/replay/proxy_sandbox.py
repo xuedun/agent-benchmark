@@ -254,6 +254,21 @@ class ProxySandboxRunner(PauseResumeRunner):
         )
         return result
 
+    async def _cleanup(self) -> None:
+        """Tolerant cleanup: a failed delete must not close the running slot
+        scheduler and cascade-kill every other worker in the same process.
+        The server's orphan reaper eventually reaps leaked sandboxes."""
+        try:
+            await self._delete_sandbox()
+        except Exception as exc:
+            self._event(
+                "warning",
+                f"Proxy-sandbox cleanup: delete failed (orphan reaper will "
+                f"handle): {exc}",
+            )
+        finally:
+            await self._release_if_safe()
+
     async def _proxy_read_with_retries(self, command: str) -> dict[str, Any]:
         """One proxy-read with rebind_in_progress retries (503 backoff)."""
         api_url = os.environ.get("E2B_API_URL", "http://127.0.0.1:8000")
