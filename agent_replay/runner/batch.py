@@ -44,8 +44,6 @@ async def run_batch(
 ) -> dict[str, Any]:
     unbounded = early_stop_rounds is not None
     if unbounded:
-        if mode != "continuous":
-            raise ValueError("early-stop rounds require --mode continuous")
         if not selection:
             raise ValueError("early-stop rounds require a nonempty selection")
         if tasks:

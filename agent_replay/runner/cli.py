@@ -184,7 +184,7 @@ def build_parser() -> argparse.ArgumentParser:
              "(total-multiplier is ignored), finished VMs are always replaced, and the "
              "experiment ends once every selection slot completed N successful replays; "
              "in-flight VMs are then stopped and their partial results discarded. "
-             "Requires --mode continuous.",
+             "Works with --mode continuous, pause-resume and proxy-sandbox.",
     )
     bench.add_argument(
         "--exclude-cases-file",

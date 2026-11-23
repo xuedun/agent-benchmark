@@ -53,6 +53,11 @@ class ReplayOptions:
     proxy_read_enabled: bool = True
     proxy_read_fallback: bool = True
     proxy_read_retry_timeout_sec: float = 30.0
+    #: Early-stop mode enables the tolerant pause-resume cleanup path: a
+    #: failed sandbox delete logs and defers to the orphan reaper instead of
+    #: closing the shared running-slot scheduler (which cascade-kills every
+    #: other worker in the process).
+    early_stop_tolerant_cleanup: bool = False
 
 
 def event_loop_metadata() -> dict[str, str]:
@@ -75,8 +80,6 @@ def trial_limits(
     if base_count < 1 or ratio < 1 or total_multiplier < 1:
         raise ValueError("base-count, ratio and total-multiplier must be positive")
     if early_stop_rounds is not None:
-        if mode != "continuous":
-            raise ValueError("--early-stop-rounds requires --mode continuous")
         if early_stop_rounds < 1:
             raise ValueError("early-stop-rounds must be positive")
         concurrency = base_count * ratio

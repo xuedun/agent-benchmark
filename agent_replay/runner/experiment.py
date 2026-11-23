@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any
 
@@ -47,11 +47,13 @@ async def run_experiment(
 ) -> int:
     validate_interval(observability_interval_sec)
     observability = observability and not options.mock
-    if early_stop_rounds is not None and mode != "continuous":
-        raise ValueError("--early-stop-rounds requires --mode continuous")
     if early_stop_rounds is not None and total_multiplier != 1:
         print(f"WARNING: --early-stop-rounds set; ignoring --total-multiplier={total_multiplier}",
               flush=True)
+    if early_stop_rounds is not None:
+        # Tolerant cleanup: early-stop aborts on the first failed task anyway,
+        # so a failed delete must not also cascade-kill the other workers.
+        options = replace(options, early_stop_tolerant_cleanup=True)
     # The requested loop belongs to the execution children, not the coordinator.
     output_dir = output_dir.expanduser().resolve()
     selection = prepare_selection(trajectory_dir, base_count, image_map)
