@@ -96,6 +96,14 @@ CONTINUOUS_TASK_COLUMNS = [
 TASK_COLUMNS = {
     "pause-resume": PAUSE_RESUME_TASK_COLUMNS,
     "continuous": CONTINUOUS_TASK_COLUMNS,
+    # proxy-sandbox is pause-resume plus per-step transport attribution
+    "proxy-sandbox": [
+        *PAUSE_RESUME_TASK_COLUMNS,
+        "proxy_read_steps",
+        "resume_steps",
+        "resume_fallback_steps",
+        "proxy_read_ratio",
+    ],
 }
 RATIO_COLUMNS = [
     "ratio",
@@ -172,7 +180,7 @@ def trajectory_record(
         "interaction_total_sec",
     ):
         row[key + "_sum"] = total(key)
-    if context["execution_mode"] == "pause-resume":
+    if context["execution_mode"] in ("pause-resume", "proxy-sandbox"):
         row["actual_paused_sec"] = None if aborted else total("paused_sec")
         for key in (
             "pause_sec",
@@ -186,6 +194,14 @@ def trajectory_record(
             "resume_attempts",
         ):
             row[key + "_sum"] = total(key)
+        if context["execution_mode"] == "proxy-sandbox":
+            proxy = sum(1 for s in steps if s.get("transport") == "proxy_read")
+            fallback = sum(1 for s in steps if s.get("transport") == "resume_fallback")
+            resume = len(steps) - proxy - fallback
+            row["proxy_read_steps"] = proxy
+            row["resume_steps"] = resume
+            row["resume_fallback_steps"] = fallback
+            row["proxy_read_ratio"] = round(proxy / len(steps), 4) if steps else None
     else:
         row.update(
             command_transport="mock" if result.get("mock") else "aenv-proxy",
