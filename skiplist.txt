@@ -1,0 +1,15 @@
+# agent-benchmark skiplist
+# Cases (trajectory name stems) excluded from summarize_agent_benchmark.py aggregation.
+# Reason: maven dependency resolution failures inside the sandbox template
+# (offline repo missing artifacts) -- the heavy build action fails fast, so
+# per-VM timing data for these cases is NOT representative.
+# Evidence: step stderr in tasks/*/replay-result.json, e.g.
+#   "[FATAL] Non-resolvable parent POM ..."
+#   "[ERROR] Unresolveable build extension: Plugin ... could not be resolved"
+# Match rule: line = trajectory stem (with or without .replay.json); '#' comments; blank lines ignored.
+spoonlabs__gumtree-spoon-ast-diff-182
+hipparchus-math__hipparchus-266
+wikidata__wikidata-toolkit-717
+primefaces__primefaces-8980
+openrefine__openrefine-6161
+microsoft__mssql-jdbc-1838

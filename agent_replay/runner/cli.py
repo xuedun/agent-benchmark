@@ -110,6 +110,12 @@ def replay_arguments(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="pause-resume only; default 2",
     )
+    parser.add_argument(
+        "--post-run-drop-caches",
+        action="store_true",
+        help="After the last action, run 'sync && echo 1 > /proc/sys/vm/drop_caches' "
+             "inside the sandbox before cleanup, releasing guest page cache back to the host",
+    )
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument(
         "--observability", action=argparse.BooleanOptionalAction, default=True,
@@ -245,6 +251,7 @@ def options_from_args(args: argparse.Namespace) -> ReplayOptions:
         mock=args.mock,
         event_loop=args.event_loop,
         skip_delays=args.skip_delays,
+        post_run_drop_caches=args.post_run_drop_caches,
     )
 
 

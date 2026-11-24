@@ -44,6 +44,7 @@ class ReplayOptions:
     mock: bool = False
     event_loop: str = "uvloop"
     skip_delays: bool = False
+    post_run_drop_caches: bool = False
 
 
 def event_loop_metadata() -> dict[str, str]:

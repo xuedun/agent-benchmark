@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 import time
 import uuid
@@ -368,6 +369,8 @@ class SandboxRunner:
             result["replay_completed"] = not result["stopped_early"]
             result["succeeded"] = result["replay_completed"]
             result["submitted"] = terminal is not None and result["replay_completed"]
+            if self.options.post_run_drop_caches and not self.options.mock:
+                await self._post_run_drop_caches(result)
         except asyncio.CancelledError:
             cancelled = True
             result["error"] = "Replay cancelled"
@@ -389,6 +392,33 @@ class SandboxRunner:
             except Exception as exc:
                 # Preserve the exception, but never let it skip sandbox cleanup.
                 write_error = exc
+            if (
+                self.sandbox_id
+                and not self.options.mock
+                and os.environ.get("AGENT_REPLAY_SANDBOX_METRICS", "0") == "1"
+            ):
+                try:
+                    from .sandbox_metrics import fetch_sandbox_metrics, write_sandbox_metrics
+
+                    samples, reason = fetch_sandbox_metrics(self.sandbox_id, timeout_s=10.0)
+                    if write_sandbox_metrics(self.output_dir, self.sandbox_id, samples):
+                        self._event(
+                            "info",
+                            f"Collected sandbox metrics sandbox={self.sandbox_id} samples={len(samples)}",
+                        )
+                    elif samples is None:
+                        self._event(
+                            "warning",
+                            f"Sandbox metrics unavailable sandbox={self.sandbox_id}: {reason}",
+                        )
+                    else:
+                        self._event(
+                            "warning",
+                            f"Sandbox metrics history empty sandbox={self.sandbox_id} "
+                            "(server sampling disabled or sandbox never sampled)",
+                        )
+                except Exception as exc:
+                    self._event("warning", f"Sandbox metrics collection failed: {exc!r}")
             cleanup_task = asyncio.create_task(self._cleanup())
             try:
                 await asyncio.shield(cleanup_task)
@@ -450,6 +480,35 @@ class SandboxRunner:
     @staticmethod
     def _duration(start: float | None, end: float | None) -> float | None:
         return None if start is None or end is None else max(0.0, end - start)
+
+    async def _post_run_drop_caches(self, result: dict[str, Any]) -> None:
+        started = time.perf_counter()
+        result["post_run_drop_caches"] = True
+        try:
+            raw = await self._dispatch_command(
+                "sync && echo 1 > /proc/sys/vm/drop_caches",
+                30,
+                operation="post_run_drop_caches",
+            )
+            _stdout, _stderr, return_code = result_fields(raw)
+            result["post_run_drop_caches_sec"] = round(time.perf_counter() - started, 3)
+            if return_code not in (None, 0):
+                result["post_run_drop_caches_error"] = f"exit_code={return_code}"
+                self._event(
+                    "warning",
+                    f"Post-run page cache drop exited with code={return_code}",
+                )
+            else:
+                self._event("info", "Post-run page cache drop done")
+        except Exception as exc:
+            result["post_run_drop_caches_sec"] = round(time.perf_counter() - started, 3)
+            result["post_run_drop_caches_error"] = f"{type(exc).__name__}: {exc}"
+            self._event(
+                "warning",
+                f"Post-run page cache drop failed: {result['post_run_drop_caches_error']}",
+            )
+        if os.environ.get("AGENT_REPLAY_SANDBOX_METRICS", "0") == "1":
+            await asyncio.sleep(4.0)
 
     async def _dispatch_command(
         self, command: str, timeout_sec: int | None, *, operation: str = "command"
