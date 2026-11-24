@@ -76,7 +76,28 @@ def connection_arguments(parser: argparse.ArgumentParser) -> None:
 
 def replay_arguments(parser: argparse.ArgumentParser) -> None:
     connection_arguments(parser)
-    parser.add_argument("--mode", choices=("pause-resume", "continuous"), required=True)
+    parser.add_argument(
+        "--mode", choices=("pause-resume", "continuous", "proxy-sandbox"), required=True
+    )
+    parser.add_argument(
+        "--proxy-read-disable",
+        action="store_true",
+        help="proxy-sandbox mode: route every action through the resume path "
+             "(baseline comparison without proxy traffic)",
+    )
+    parser.add_argument(
+        "--proxy-read-no-fallback",
+        action="store_true",
+        help="proxy-sandbox mode: fail the step instead of falling back to the "
+             "resume path when proxy-read errors",
+    )
+    parser.add_argument(
+        "--proxy-read-retry-timeout-sec",
+        type=nonnegative_float,
+        default=30.0,
+        help="proxy-sandbox mode: total retry budget for 503 rebind-in-progress "
+             "responses (default: 30)",
+    )
     parser.add_argument(
         "--mock", action="store_true",
         help="Replay real trajectories against a local success-only sandbox; disables monitoring",
@@ -147,6 +168,26 @@ def build_parser() -> argparse.ArgumentParser:
         default=1,
         metavar="M",
         help="Task waves per trial: total=M*concurrency, concurrency=ratio*base-count (default: 1)",
+    )
+    bench.add_argument(
+        "--early-stop-rounds",
+        type=positive_int,
+        default=None,
+        metavar="N",
+        help="Constant-pressure early-stop mode: the task pool becomes unbounded "
+             "(total-multiplier is ignored), finished VMs are always replaced, and the "
+             "experiment ends once every selection slot completed N successful replays; "
+             "in-flight VMs are then stopped and their partial results discarded. "
+             "Works with --mode continuous, pause-resume and proxy-sandbox.",
+    )
+    bench.add_argument(
+        "--exclude-cases-file",
+        type=Path,
+        default=None,
+        metavar="FILE",
+        help="Early-stop mode: drop selection entries whose trajectory stem is listed "
+             "in FILE (one per line, '#' comments) before planning, so known-bad cases "
+             "cannot abort the experiment. Default: skiplist.txt when present; 'none' disables.",
     )
     bench.add_argument("--launch-interval-sec", type=nonnegative_float, default=0)
     bench.add_argument("--cooldown-sec", type=nonnegative_float, default=0)
@@ -245,6 +286,9 @@ def options_from_args(args: argparse.Namespace) -> ReplayOptions:
         mock=args.mock,
         event_loop=args.event_loop,
         skip_delays=args.skip_delays,
+        proxy_read_enabled=not args.proxy_read_disable,
+        proxy_read_fallback=not args.proxy_read_no_fallback,
+        proxy_read_retry_timeout_sec=args.proxy_read_retry_timeout_sec,
     )
 
 
@@ -322,6 +366,8 @@ async def dispatch(args: argparse.Namespace) -> int:
             stop_on_failure=args.stop_on_failure,
             observability=args.observability,
             observability_interval_sec=args.observability_interval_sec,
+            early_stop_rounds=getattr(args, "early_stop_rounds", None),
+            exclude_cases_file=getattr(args, "exclude_cases_file", None),
         )
     finally:
         if is_real_run and not skip_orphan_cleanup:

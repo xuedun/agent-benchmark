@@ -221,24 +221,44 @@ def collect_trial(
     running = summary["running_slots"]
     expected = limits["total_tasks"]
     items = summary["items"]
-    valid = (
-        summary["total"] == expected
-        and len(items) == expected
-        and summary["succeeded"] == expected
-        and summary["failed"] == 0
-        and summary["concurrency"] == limits["concurrency"]
-        and summary["running_concurrency"] == limits["running_concurrency"]
-        and running["maximum"] == limits["running_concurrency"]
-        and running.get("complete", True)
-        and type(running["peak_active"]) is int
-        and 0 <= running["peak_active"] <= limits["running_concurrency"]
-        and running["active"] == 0
-        and not summary.get("process_errors")
-        and not summary.get("interrupted")
-        and not summary.get("error")
-        and not summary.get("observability_error")
-        and not summary.get("observability_report_error")
-    )
+    if expected is None:
+        early_stop = summary.get("early_stop") or {}
+        valid = (
+            summary["failed"] == 0
+            and summary["total"] == summary["succeeded"]
+            and bool(early_stop.get("rounds_reached"))
+            and summary["concurrency"] == limits["concurrency"]
+            and summary["running_concurrency"] == limits["running_concurrency"]
+            and running["maximum"] == limits["running_concurrency"]
+            and running.get("complete", True)
+            and type(running["peak_active"]) is int
+            and 0 <= running["peak_active"] <= limits["running_concurrency"]
+            and running["active"] == 0
+            and not summary.get("process_errors")
+            and not summary.get("interrupted")
+            and not summary.get("error")
+            and not summary.get("observability_error")
+            and not summary.get("observability_report_error")
+        )
+    else:
+        valid = (
+            summary["total"] == expected
+            and len(items) == expected
+            and summary["succeeded"] == expected
+            and summary["failed"] == 0
+            and summary["concurrency"] == limits["concurrency"]
+            and summary["running_concurrency"] == limits["running_concurrency"]
+            and running["maximum"] == limits["running_concurrency"]
+            and running.get("complete", True)
+            and type(running["peak_active"]) is int
+            and 0 <= running["peak_active"] <= limits["running_concurrency"]
+            and running["active"] == 0
+            and not summary.get("process_errors")
+            and not summary.get("interrupted")
+            and not summary.get("error")
+            and not summary.get("observability_error")
+            and not summary.get("observability_report_error")
+        )
     context = {
         "execution_mode": summary["execution_mode"],
         "ratio": ratio,
@@ -270,7 +290,8 @@ def collect_trial(
     trial = {
         **context,
         **limits,
-        "target_count": expected,
+        "target_count": (f"unbounded(rounds={limits.get('early_stop_rounds')})"
+                         if expected is None else expected),
         "valid": valid,
         "total": summary["total"],
         "succeeded": summary["succeeded"],

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +11,8 @@ from ..report.results import SCHEMA_VERSION, TIMING_CONTRACT, read_json, write_j
 from ..report.summary import collect_trial, write_outputs
 from .prepare import (
     build_task_plan,
+    filter_selection,
+    load_excluded_cases,
     prepare_selection,
 )
 
@@ -40,12 +42,38 @@ async def run_experiment(
     stop_on_failure: bool = False,
     observability: bool = True,
     observability_interval_sec: float = 1.0,
+    early_stop_rounds: int | None = None,
+    exclude_cases_file: Path | None = None,
 ) -> int:
     validate_interval(observability_interval_sec)
     observability = observability and not options.mock
+    if early_stop_rounds is not None and total_multiplier != 1:
+        print(f"WARNING: --early-stop-rounds set; ignoring --total-multiplier={total_multiplier}",
+              flush=True)
+    if early_stop_rounds is not None:
+        # Tolerant cleanup: early-stop aborts on the first failed task anyway,
+        # so a failed delete must not also cascade-kill the other workers.
+        options = replace(options, early_stop_tolerant_cleanup=True)
     # The requested loop belongs to the execution children, not the coordinator.
     output_dir = output_dir.expanduser().resolve()
     selection = prepare_selection(trajectory_dir, base_count, image_map)
+    excluded_stems: list[str] = []
+    if early_stop_rounds is not None:
+        # Early-stop aborts on any failed task, so known-bad cases must be
+        # dropped from the plan instead of failing the whole experiment.
+        path = exclude_cases_file
+        if path is None:
+            default = Path("skiplist.txt")
+            path = default if default.is_file() else None
+        elif str(path).lower() in ("none", "-"):
+            path = None
+        if path is not None:
+            selection, excluded_stems = filter_selection(selection, load_excluded_cases(path))
+            if not selection:
+                raise ValueError("exclusion file removed every selected case")
+            if excluded_stems:
+                print(f"early-stop: excluded {len(excluded_stems)} selection entries "
+                      f"via {path} (e.g. {sorted(set(excluded_stems))[:3]})", flush=True)
     # Validate every selected trajectory before creating any sandbox.
     for source in {x["source_trajectory"] for x in selection}:
         load_trajectory(source)
@@ -60,6 +88,8 @@ async def run_experiment(
         "ratios": ratios,
         "repeats": repeats,
         "total_multiplier": total_multiplier,
+        "early_stop_rounds": early_stop_rounds,
+        "excluded_cases": sorted(set(excluded_stems)),
         "trajectory_dir": str(trajectory_dir.expanduser().resolve()),
         "launch_interval_sec": launch_interval_sec,
         "cooldown_sec": cooldown_sec,
@@ -92,8 +122,10 @@ async def run_experiment(
     executed = 0
     failed = False
     for ratio in ratios:
-        limits = trial_limits(mode, base_count, ratio, total_multiplier)
-        tasks = build_task_plan(selection, limits["total_tasks"])
+        limits = trial_limits(mode, base_count, ratio, total_multiplier,
+                              early_stop_rounds=early_stop_rounds)
+        unbounded = bool(limits["unbounded"])
+        tasks = None if unbounded else build_task_plan(selection, limits["total_tasks"])
         for repeat in range(1, repeats + 1):
             trial_dir = output_dir / f"ratio-{ratio:02d}" / f"repeat-{repeat:02d}"
             planned = {
@@ -104,7 +136,9 @@ async def run_experiment(
                 "process_count": ratio,
                 "workers_per_process": base_count,
                 **limits,
-                "tasks": [task.record() for task in tasks],
+                "tasks": ([task.record() for task in tasks] if tasks is not None else None),
+                "task_generation": ({"kind": "unbounded-stride", "selection_size": len(selection)}
+                                    if unbounded else None),
             }
             plan_path = trial_dir / "task-plan.json"
             if plan_path.exists() and read_json(plan_path) != planned:
@@ -117,9 +151,11 @@ async def run_experiment(
                     f"Incomplete trial contains task artifacts; preserve it and use a new output directory: {trial_dir}"
                 )
             write_json(plan_path, planned)
+            plan_label = (f"unbounded(rounds={early_stop_rounds}, slots={len(selection)})"
+                          if unbounded else f"{len(tasks)}")
             print(
                 f"mode={mode} ratio=1:{ratio} repeat={repeat}/{repeats} "
-                f"tasks={len(tasks)} concurrency={limits['concurrency']} running={limits['running_concurrency']} "
+                f"tasks={plan_label} concurrency={limits['concurrency']} running={limits['running_concurrency']} "
                 f"processes={ratio} workers_per_process={base_count}",
                 flush=True,
             )
@@ -145,6 +181,8 @@ async def run_experiment(
                         observability_interval_sec=observability_interval_sec,
                         process_count=ratio,
                         workers_per_process=base_count,
+                        selection=selection,
+                        early_stop_rounds=early_stop_rounds,
                     )
                 except asyncio.CancelledError:
                     cancelled = True

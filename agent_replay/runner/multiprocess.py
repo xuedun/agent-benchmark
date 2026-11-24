@@ -11,17 +11,22 @@ import multiprocessing
 from pathlib import Path
 import os
 import signal
+import statistics
 import time
 
-from ..report.results import absolute_timestamp, read_json, write_json
+from ..report.results import absolute_timestamp, job_log_line, read_json, write_json
 from .execution import LocalExecution, task_directory
 from .models import ReplayOptions, ReplayTask
+from .prepare import build_task_stream
 
 TOPOLOGY = "process-per-ratio-v1"
 STARTUP_TIMEOUT_SEC = 120.0
 CLEANUP_TIMEOUT_SEC = 300.0
 FLUSH_TIMEOUT_SEC = 300.0
 EXIT_TIMEOUT_SEC = 5.0
+PROGRESS_INTERVAL_SEC = 30.0
+
+LOGGER = logging.getLogger(__name__)
 
 
 def shard_tasks(tasks: list[ReplayTask], process_count: int) -> list[list[ReplayTask]]:
@@ -87,6 +92,10 @@ async def _run_child(connection, tasks, config):
         elif kind == "FLUSH":
             flush.set()
         elif kind == "STOP":
+            if local is not None:
+                # "rounds" lets LocalExecution discard in-flight task dirs;
+                # any other (or missing) reason preserves them for diagnosis.
+                local.stop_reason = message.get("reason")
             stop()
         elif kind == "PERMIT":
             future = permits.get(message["task_index"])
@@ -109,18 +118,37 @@ async def _run_child(connection, tasks, config):
 
     process_dir = Path(config["process_dir"])
     process_dir.mkdir(parents=True, exist_ok=True)
+    if config.get("unbounded"):
+        tasks: object = build_task_stream(
+            config["selection"], config["shard_index"], config["process_count"]
+        )
+        total_tasks = None
+    else:
+        total_tasks = config["total_tasks"]
+
+    def report_completion(task: ReplayTask, item: dict) -> None:
+        send("COMPLETED", task_index=task.task_index,
+             selection_index=task.selection_index,
+             succeeded=bool(item["succeeded"]),
+             interrupted=bool(item.get("interrupted")))
+
     local = LocalExecution(
         tasks, mode=config["mode"], concurrency=config["capacity"],
         running_concurrency=config["capacity"], options=config["options"],
-        output_dir=Path(config["output_dir"]), total_tasks=config["total_tasks"],
+        output_dir=Path(config["output_dir"]), total_tasks=total_tasks,
         emit=lambda name, line: send("LOG", name=name, line=line),
         launch_gate=launch if config["launch_interval_sec"] else None,
         record_running_events=True,
+        early_stop=bool(config.get("early_stop")),
+        on_task_completed=report_completion if config.get("unbounded") else None,
     )
     loop.add_reader(connection.fileno(), receive)
     try:
-        send("READY", pid=os.getpid(), worker_count=min(config["capacity"], len(tasks)),
-             assigned_tasks=len(tasks), capacity=config["capacity"], **local.loop_metadata)
+        worker_count = (config["capacity"] if config.get("unbounded")
+                        else min(config["capacity"], len(tasks)))
+        assigned = "unbounded" if config.get("unbounded") else len(tasks)
+        send("READY", pid=os.getpid(), worker_count=worker_count,
+             assigned_tasks=assigned, capacity=config["capacity"], **local.loop_metadata)
         await start.wait()
         started_ns = time.monotonic_ns()
         if not stopping:
@@ -133,11 +161,13 @@ async def _run_child(connection, tasks, config):
             local.failure = asyncio.CancelledError()
             await local.scheduler.close()
         error = None
-        if local.failure is not None:
+        if local.failure is not None and not stopping:
+            # A failure that raced with an intentional STOP (rounds reached,
+            # external interrupt, pipe EOF) is already attributed elsewhere;
+            # only record it when this shard failed on its own.
             error = ("Execution cancelled" if isinstance(local.failure, asyncio.CancelledError)
                      else f"{type(local.failure).__name__}: {local.failure}")
-            if not stopping:
-                send("ERROR", error=error)
+            send("ERROR", error=error)
         send("QUIESCED", snapshot=local.snapshot, started_ns=started_ns,
              stopped_ns=time.monotonic_ns(), error=error,
              sample_count=local.recorder.sample_count if local.recorder else 0)
@@ -223,7 +253,7 @@ def merge_running_events(paths: list[Path], snapshots: list[dict], capacity: int
 class _Child:
     process: object
     connection: object
-    tasks: list[ReplayTask]
+    tasks: list[ReplayTask] | None
     directory: Path
     ready: dict | None = None
     quiesced: dict | None = None
@@ -236,7 +266,10 @@ class _Child:
 
 class ProcessExecution:
     def __init__(self, tasks, *, process_count, workers_per_process, mode, options,
-                 output_dir, launch_interval_sec, emit):
+                 output_dir, launch_interval_sec, emit,
+                 selection: list[dict] | None = None,
+                 early_stop_rounds: int | None = None,
+                 progress_interval_sec: float = PROGRESS_INTERVAL_SEC):
         self.tasks = tasks
         self.process_count = process_count
         self.capacity = workers_per_process
@@ -245,6 +278,15 @@ class ProcessExecution:
         self.output_dir = output_dir
         self.interval = launch_interval_sec
         self.emit = emit
+        #: Early-stop (unbounded) mode: tasks is None and selection drives the
+        #  lazily generated per-shard streams; every selection slot must reach
+        #  early_stop_rounds successful completions.
+        self.selection = selection
+        self.early_stop_rounds = early_stop_rounds
+        self.unbounded = early_stop_rounds is not None
+        if self.unbounded and not selection:
+            raise ValueError("early-stop mode requires a nonempty selection")
+        self.progress_interval_sec = progress_interval_sec
         self.children: list[_Child] = []
         self.errors = []
         self.changed = asyncio.Event()
@@ -253,6 +295,11 @@ class ProcessExecution:
         self.admissions = []
         self.launch_task = None
         self.stopping = False
+        self.rounds: dict[int, int] = {}
+        self.rounds_reached = False
+        self.stop_reason: str | None = None
+        self.completed_total = 0
+        self.progress_task = None
         self.loop_metadata = {"event_loop": options.event_loop, "event_loop_class": None}
         self.startup_sec = 0.0
         self.flush_started_ns = None
@@ -301,6 +348,8 @@ class ProcessExecution:
                 self._error(child, message["error"])
         elif kind == "ERROR":
             self._error(child, message["error"])
+        elif kind == "COMPLETED":
+            self._record_completion(message)
         elif kind == "LAUNCH":
             self.launch_requests.put_nowait((child, message["task_index"]))
         elif kind == "ADMITTED":
@@ -311,6 +360,75 @@ class ProcessExecution:
                                             "timestamp_ns": message["timestamp_ns"]})
                     future.set_result(None)
         self.changed.set()
+
+    def _record_completion(self, message):
+        """Early-stop bookkeeping: count successful completions per selection
+        slot and stop the experiment once every slot reached the target."""
+        self.completed_total += 1
+        if message.get("succeeded"):
+            slot = message["selection_index"]
+            self.rounds[slot] = self.rounds.get(slot, 0) + 1
+        if (self.unbounded and not self.rounds_reached and not self.stopping
+                and self._all_rounds_reached()):
+            # Schedule the stop FIRST: this runs inside a reader callback where
+            # any later exception must never swallow the stop task.
+            self.rounds_reached = True
+            self.stop_reason = "rounds"
+            stop_task = asyncio.create_task(self._rounds_stop())
+            try:
+                stats = self._rounds_stats()
+                line = (f"Early-stop target reached: rounds={self.early_stop_rounds} "
+                        f"slots={len(self.selection)} completed_total={self.completed_total} "
+                        f"rounds_min/median/max={stats}")
+                LOGGER.info("%s", line)
+                print(line, flush=True)
+                self.emit("job.log", job_log_line("info", line))
+            except Exception:
+                LOGGER.exception("early-stop target logging failed (stop task=%s)",
+                                 stop_task)
+
+    def _all_rounds_reached(self) -> bool:
+        target = self.early_stop_rounds
+        return all(self.rounds.get(slot, 0) >= target for slot in self._selection_indices())
+
+    def _selection_indices(self) -> list[int]:
+        return [entry["selection_index"] for entry in self.selection]
+
+    def _rounds_stats(self) -> str:
+        counts = [self.rounds.get(slot, 0) for slot in self._selection_indices()]
+        return f"{min(counts)}/{statistics.median(counts)}/{max(counts)}"
+
+    async def _rounds_stop(self):
+        try:
+            await self.stop(reason="rounds")
+        except Exception as exc:
+            self.errors.append(f"Rounds stop failed: {type(exc).__name__}: {exc}")
+            self.changed.set()
+
+    async def _progress_loop(self):
+        while not self.rounds_reached:
+            await asyncio.sleep(self.progress_interval_sec)
+            if self.rounds_reached or self.stopping:
+                return
+            self._report_progress()
+
+    def _report_progress(self):
+        counts = [self.rounds.get(slot, 0) for slot in self._selection_indices()]
+        active = max(0, len(self.admissions) - self.completed_total)
+        elapsed = ((time.monotonic_ns() - self.started_ns) / 1e9
+                   if self.started_ns is not None else 0.0)
+        eta = "n/a"
+        slowest = min(counts) if counts else 0
+        if elapsed > 0 and slowest > 0:
+            remaining = self.early_stop_rounds - slowest
+            eta = f"{elapsed / slowest * remaining / 60:.1f}min"
+        line = (f"[early-stop progress] t={elapsed:.0f}s completed={self.completed_total} "
+                f"active={active} rounds_min/median/max={min(counts)}/"
+                f"{statistics.median(counts)}/{max(counts)} target={self.early_stop_rounds} "
+                f"eta={eta}")
+        LOGGER.info("%s", line)
+        print(line, flush=True)
+        self.emit("job.log", job_log_line("info", line))
 
     def _exited(self, child):
         child.process.join(timeout=0)
@@ -342,17 +460,24 @@ class ProcessExecution:
     async def prepare(self):
         started = time.perf_counter()
         context = multiprocessing.get_context("spawn")
-        for index, shard in enumerate(shard_tasks(self.tasks, self.process_count)):
-            parent_conn, child_conn = context.Pipe()
+        shards = (None if self.unbounded
+                  else shard_tasks(self.tasks, self.process_count))
+        for index in range(self.process_count):
+            shard = None if self.unbounded else shards[index]
             directory = self.output_dir / "processes" / f"{index:02d}"
             config = {
                 "mode": self.mode, "capacity": self.capacity, "options": self.options,
                 "output_dir": str(self.output_dir), "process_dir": str(directory),
-                "total_tasks": len(self.tasks), "launch_interval_sec": self.interval,
+                "total_tasks": None if self.unbounded else len(self.tasks),
+                "launch_interval_sec": self.interval,
                 "log_level": logging.getLogger().getEffectiveLevel(),
                 "logger_levels": {name: logging.getLogger(name).level
                                   for name in ("httpx", "httpcore", "e2b")},
+                "unbounded": self.unbounded, "shard_index": index,
+                "process_count": self.process_count, "selection": self.selection,
+                "early_stop": self.unbounded,
             }
+            parent_conn, child_conn = context.Pipe()
             process = context.Process(target=_child_entry, args=(child_conn, shard, config),
                                       name=f"replay-{index:02d}")
             try:
@@ -393,20 +518,25 @@ class ProcessExecution:
         self.started_ns = time.monotonic_ns()
         if self.interval:
             self.launch_task = asyncio.create_task(self._launch())
+        if self.unbounded:
+            self.progress_task = asyncio.create_task(self._progress_loop())
         for child in self.children:
             self._send(child, "START")
         await self._wait(lambda: all(c.quiesced for c in self.children))
         self.finished_ns = time.monotonic_ns()
         self.completed_at = absolute_timestamp()
 
-    async def stop(self):
+    async def stop(self, reason: str | None = None):
         self.stopping = True
         if self.launch_task is not None:
             self.launch_task.cancel()
             await asyncio.gather(self.launch_task, return_exceptions=True)
+        if self.progress_task is not None:
+            self.progress_task.cancel()
+            await asyncio.gather(self.progress_task, return_exceptions=True)
         for child in self.children:
             if not child.quiesced:
-                self._send(child, "STOP")
+                self._send(child, "STOP", reason=reason)
         try:
             await self._wait(lambda: all(c.quiesced or c.exited for c in self.children),
                              CLEANUP_TIMEOUT_SEC, fail_fast=False)
@@ -489,17 +619,91 @@ class ProcessExecution:
                     raise ValueError("Process identity/loop metadata mismatch")
                 if not child.quiesced or summary["running_slots"] != child.quiesced["snapshot"]:
                     raise ValueError("Process running snapshot mismatch")
-                if sorted(item["task_index"] for item in summary["items"]) != sorted(
-                    task.task_index for task in child.tasks
-                ):
-                    self._error(child, "Process result identities are incomplete or duplicated",
-                                notify=False)
+                if self.unbounded:
+                    for item in summary["items"]:
+                        if (item["task_index"] - 1) % self.process_count != self.children.index(child):
+                            raise ValueError("Task index outside shard assignment")
+                else:
+                    if sorted(item["task_index"] for item in summary["items"]) != sorted(
+                        task.task_index for task in child.tasks
+                    ):
+                        self._error(child, "Process result identities are incomplete or duplicated",
+                                    notify=False)
                 if summary.get("error"):
                     self._error(child, summary["error"], notify=False)
                 summaries.append(summary)
             except (OSError, ValueError, KeyError, TypeError) as exc:
                 self._error(child, f"Missing/invalid process summary: {exc}", notify=False)
                 summaries.append(None)
+        if self.unbounded:
+            items = self._collect_unbounded_items(summaries)
+        else:
+            items = self._collect_bounded_items()
+        running = {"maximum": self.process_count * self.capacity, "active": None,
+                   "peak_active": None, "waiting": None, "granted": None,
+                   "average_queue_wait_sec": None, "complete": False, "peak_method": "incomplete"}
+        try:
+            if len(summaries) != self.process_count or any(s is None for s in summaries):
+                raise ValueError("Not all execution snapshots were collected")
+            running = merge_running_events(
+                [c.directory / "running-events.jsonl" for c in self.children],
+                [s["running_slots"] for s in summaries], running["maximum"],
+            )
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            self.errors.append(f"Running statistics incomplete: {exc}")
+        scheduling = self._merge_samples(summaries) if self.options.mock and not self.unbounded else None
+        processes = [{
+            "process_index": index, "pid": child.process.pid,
+            "assigned_task_indices": (None if self.unbounded
+                                      else [t.task_index for t in child.tasks]),
+            "worker_count": (self.capacity if self.unbounded
+                             else min(self.capacity, len(child.tasks))),
+            "capacity": self.capacity,
+            "event_loop": (child.ready or {}).get("event_loop"),
+            "event_loop_class": (child.ready or {}).get("event_loop_class"),
+            "exitcode": child.process.exitcode, "forced_cleanup": child.forced,
+            "ready": child.ready is not None, "quiesced": child.quiesced is not None,
+            "flushed": child.flushed, "errors": child.errors,
+            "started_ns": (child.quiesced or {}).get("started_ns"),
+            "stopped_ns": (child.quiesced or {}).get("stopped_ns"),
+            "running_slots": (summary or {}).get("running_slots"),
+        } for index, (child, summary) in enumerate(zip(self.children, summaries))]
+        return {
+            "items": items, "running_slots": running, "loop_scheduling": scheduling,
+            "execution_topology": TOPOLOGY, "process_count": self.process_count,
+            "workers_per_process": self.capacity, "startup_sec": self.startup_sec,
+            "processes": processes, "process_errors": self.errors,
+            "launch_admissions": self.admissions, "flush_started_ns": self.flush_started_ns,
+            "early_stop": {
+                "rounds_required": self.early_stop_rounds,
+                "rounds_reached": self.rounds_reached,
+                "stop_reason": self.stop_reason,
+                "completed_total": self.completed_total,
+                "rounds_by_selection": dict(sorted(self.rounds.items())),
+            } if self.unbounded else None,
+        }
+
+    def _collect_unbounded_items(self, summaries) -> list[dict]:
+        """Items come from the children's process summaries. In-flight tasks
+        interrupted by the rounds stop were already discarded shard-locally;
+        filter any survivors defensively."""
+        items: list[dict] = []
+        seen: set[int] = set()
+        for child, summary in zip(self.children, summaries):
+            if summary is None:
+                continue
+            for item in summary["items"]:
+                if self.stop_reason == "rounds" and item.get("interrupted"):
+                    continue
+                if item["task_index"] in seen:
+                    self._error(child, "Duplicate task index across shards", notify=False)
+                    continue
+                seen.add(item["task_index"])
+                items.append(item)
+        items.sort(key=lambda x: x["task_index"])
+        return items
+
+    def _collect_bounded_items(self) -> list[dict]:
         items = []
         for task in self.tasks:
             path = task_directory(self.output_dir, task) / "replay-result.json"
@@ -516,39 +720,7 @@ class ProcessExecution:
                 "elapsed_sec": result.get("elapsed_sec"),
                 "error": result.get("error") or result.get("cleanup_error"),
             })
-        running = {"maximum": self.process_count * self.capacity, "active": None,
-                   "peak_active": None, "waiting": None, "granted": None,
-                   "average_queue_wait_sec": None, "complete": False, "peak_method": "incomplete"}
-        try:
-            if len(summaries) != self.process_count or any(s is None for s in summaries):
-                raise ValueError("Not all execution snapshots were collected")
-            running = merge_running_events(
-                [c.directory / "running-events.jsonl" for c in self.children],
-                [s["running_slots"] for s in summaries], running["maximum"],
-            )
-        except (OSError, ValueError, KeyError, TypeError) as exc:
-            self.errors.append(f"Running statistics incomplete: {exc}")
-        scheduling = self._merge_samples(summaries) if self.options.mock else None
-        processes = [{
-            "process_index": index, "pid": child.process.pid,
-            "assigned_task_indices": [t.task_index for t in child.tasks],
-            "worker_count": min(self.capacity, len(child.tasks)), "capacity": self.capacity,
-            "event_loop": (child.ready or {}).get("event_loop"),
-            "event_loop_class": (child.ready or {}).get("event_loop_class"),
-            "exitcode": child.process.exitcode, "forced_cleanup": child.forced,
-            "ready": child.ready is not None, "quiesced": child.quiesced is not None,
-            "flushed": child.flushed, "errors": child.errors,
-            "started_ns": (child.quiesced or {}).get("started_ns"),
-            "stopped_ns": (child.quiesced or {}).get("stopped_ns"),
-            "running_slots": (summary or {}).get("running_slots"),
-        } for index, (child, summary) in enumerate(zip(self.children, summaries))]
-        return {
-            "items": items, "running_slots": running, "loop_scheduling": scheduling,
-            "execution_topology": TOPOLOGY, "process_count": self.process_count,
-            "workers_per_process": self.capacity, "startup_sec": self.startup_sec,
-            "processes": processes, "process_errors": self.errors,
-            "launch_admissions": self.admissions, "flush_started_ns": self.flush_started_ns,
-        }
+        return items
 
     def _merge_samples(self, summaries):
         path = self.output_dir / "loop-scheduling.jsonl"

@@ -3,6 +3,11 @@ from __future__ import annotations
 import asyncio
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Any
+
+#: Sentinel recorded in plans/summaries when early-stop rounds replace the
+#: finite task pool. The task stream is generated lazily and never materialized.
+EARLY_STOP_UNBOUNDED_MULTIPLIER = 999999
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +49,14 @@ class ReplayOptions:
     mock: bool = False
     event_loop: str = "uvloop"
     skip_delays: bool = False
+    proxy_read_enabled: bool = True
+    proxy_read_fallback: bool = True
+    proxy_read_retry_timeout_sec: float = 30.0
+    #: Early-stop mode enables the tolerant pause-resume cleanup path: a
+    #: failed sandbox delete logs and defers to the orphan reaper instead of
+    #: closing the shared running-slot scheduler (which cascade-kills every
+    #: other worker in the process).
+    early_stop_tolerant_cleanup: bool = False
 
 
 def event_loop_metadata() -> dict[str, str]:
@@ -55,16 +68,34 @@ def event_loop_metadata() -> dict[str, str]:
 
 
 def trial_limits(
-    mode: str, base_count: int, ratio: int, total_multiplier: int = 1
-) -> dict[str, int]:
-    if mode not in ("pause-resume", "continuous"):
+    mode: str,
+    base_count: int,
+    ratio: int,
+    total_multiplier: int = 1,
+    early_stop_rounds: int | None = None,
+) -> dict[str, Any]:
+    if mode not in ("pause-resume", "continuous", "proxy-sandbox"):
         raise ValueError(f"Unknown execution mode: {mode}")
     if base_count < 1 or ratio < 1 or total_multiplier < 1:
         raise ValueError("base-count, ratio and total-multiplier must be positive")
+    if early_stop_rounds is not None:
+        if early_stop_rounds < 1:
+            raise ValueError("early-stop-rounds must be positive")
+        concurrency = base_count * ratio
+        return {
+            "concurrency": concurrency,
+            "running_concurrency": concurrency,
+            "total_tasks": None,
+            "total_multiplier": EARLY_STOP_UNBOUNDED_MULTIPLIER,
+            "early_stop_rounds": early_stop_rounds,
+            "unbounded": True,
+        }
     concurrency = base_count * ratio
     return {
         "concurrency": concurrency,
         "running_concurrency": concurrency,
         "total_tasks": total_multiplier * concurrency,
         "total_multiplier": total_multiplier,
+        "early_stop_rounds": None,
+        "unbounded": False,
     }

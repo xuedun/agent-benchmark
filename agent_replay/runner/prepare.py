@@ -6,6 +6,7 @@ import csv
 import hashlib
 import json
 import re
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -176,3 +177,63 @@ def build_task_plan(
         )
         for index in range(total_tasks)
     ]
+
+
+def build_task_stream(
+    selection: list[dict[str, Any]], shard_index: int, process_count: int
+) -> Iterator[ReplayTask]:
+    """Unbounded early-stop task stream for one execution shard.
+
+    Shard `i` owns global (0-based) indices `i, i+P, i+2P, ...`, so the union of
+    all shards is exactly the same round-robin sequence as `build_task_plan`.
+    Task indices stay globally unique, and each shard cycles the whole
+    selection. Never materialized: callers consume it lazily.
+    """
+    if not selection or process_count < 1:
+        raise ValueError("selection must not be empty and process-count must be positive")
+    if not 0 <= shard_index < process_count:
+        raise ValueError("shard_index must be inside [0, process_count)")
+    size = len(selection)
+    cycle = 0
+    while True:
+        global_index = shard_index + cycle * process_count
+        entry = selection[global_index % size]
+        yield ReplayTask(
+            task_index=global_index + 1,
+            source_trajectory=Path(entry["source_trajectory"]),
+            template=entry["template"],
+            selection_index=entry["selection_index"],
+            occurrence=global_index // size + 1,
+        )
+        cycle += 1
+
+
+def load_excluded_cases(path: Path) -> set[str]:
+    """Load trajectory-name stems to exclude (skiplist format: one stem per
+    line, '#' comments and blank lines ignored)."""
+    excluded: set[str] = set()
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stem = line.strip()
+        if not stem or stem.startswith("#"):
+            continue
+        stem = stem.removesuffix(".replay.json").removesuffix(".json")
+        excluded.add(stem)
+    return excluded
+
+
+def filter_selection(
+    selection: list[dict[str, Any]], excluded: set[str]
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Drop selection entries whose trajectory stem is excluded.
+
+    Returns (kept_selection, dropped_stems) with original order preserved."""
+    if not excluded:
+        return selection, []
+    kept, dropped = [], []
+    for entry in selection:
+        stem = Path(entry["source_trajectory"]).stem.removesuffix(".replay")
+        if stem in excluded:
+            dropped.append(stem)
+        else:
+            kept.append(entry)
+    return kept, dropped

@@ -181,8 +181,20 @@ class PauseResumeRunner(SandboxRunner):
                 raise RuntimeError(
                     f"Create outcome is uncertain; key={self.sandbox_create_key}"
                 )
-        except BaseException:
-            await self.running_slot_scheduler.close()
-            raise
+        except BaseException as exc:
+            if self.options and self.options.early_stop_tolerant_cleanup:
+                # Early-stop mode: a failed delete must not close the shared
+                # scheduler and cascade-kill every other worker in this
+                # process; the fail-fast abort is the worker's raise, not the
+                # scheduler teardown. The server's orphan reaper eventually
+                # reaps the sandbox.
+                self._event(
+                    "error",
+                    f"Pause-resume cleanup failed (orphan reaper will handle "
+                    f"sandbox {self.sandbox_id}): {exc}",
+                )
+            else:
+                await self.running_slot_scheduler.close()
+                raise
         finally:
             await self._release_if_safe()

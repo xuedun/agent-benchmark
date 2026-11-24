@@ -26,7 +26,7 @@ LOGGER = logging.getLogger(__name__)
 
 
 async def run_batch(
-    tasks: list[ReplayTask],
+    tasks: list[ReplayTask] | None,
     *,
     mode: str,
     concurrency: int,
@@ -38,12 +38,25 @@ async def run_batch(
     observability_interval_sec: float = 1.0,
     process_count: int | None = None,
     workers_per_process: int | None = None,
+    selection: list[dict] | None = None,
+    early_stop_rounds: int | None = None,
+    progress_interval_sec: float = 30.0,
 ) -> dict[str, Any]:
-    if not tasks or concurrency < 1 or not 1 <= running_concurrency <= concurrency:
+    unbounded = early_stop_rounds is not None
+    if unbounded:
+        if not selection:
+            raise ValueError("early-stop rounds require a nonempty selection")
+        if tasks:
+            raise ValueError("early-stop rounds replace the finite task plan; pass tasks=None")
+        if process_count is None:
+            raise ValueError("early-stop rounds require process-sharded execution")
+    elif not tasks:
         raise ValueError(
             "A nonempty plan and 1 <= running-concurrency <= concurrency are required"
         )
-    if mode not in ("pause-resume", "continuous"):
+    if concurrency < 1 or not 1 <= running_concurrency <= concurrency:
+        raise ValueError("1 <= running-concurrency <= concurrency is required")
+    if mode not in ("pause-resume", "continuous", "proxy-sandbox"):
         raise ValueError(f"Unknown mode: {mode}")
     if process_count is not None:
         if (process_count < 1 or workers_per_process is None or workers_per_process < 1
@@ -79,6 +92,8 @@ async def run_batch(
             tasks, process_count=process_count, workers_per_process=workers_per_process,
             mode=mode, options=options, output_dir=output_dir,
             launch_interval_sec=launch_interval_sec, emit=emit,
+            selection=selection, early_stop_rounds=early_stop_rounds,
+            progress_interval_sec=progress_interval_sec,
         )
     try:
         if process_count is not None:
@@ -93,16 +108,26 @@ async def run_batch(
             LOGGER.info("Observability started: %s", monitor.output_dir)
         started_at = absolute_timestamp()
         started_ns = time.monotonic_ns()
-        job_event("info", f"Batch job started trajectories={len(tasks)} "
+        plan_size = "unbounded" if unbounded else str(len(tasks))
+        source_count = len(selection) if unbounded else len({t.selection_index for t in tasks})
+        template_label = ("mixed" if unbounded and len({s["template"] for s in selection}) > 1
+                          else ("mixed" if not unbounded and len({t.template for t in tasks}) > 1
+                                else (selection[0]["template"] if unbounded else tasks[0].template)))
+        job_event("info", f"Batch job started trajectories={source_count} "
                   f"mock={str(options.mock).lower()} skip_delays={str(options.skip_delays).lower()} "
                   f"event_loop={execution.loop_metadata['event_loop_class']} "
-                  f"source_trajectories={len({t.selection_index for t in tasks})} "
-                  f"target_count={len(tasks)} concurrency={concurrency} "
+                  f"source_trajectories={source_count} "
+                  f"target_count={plan_size} concurrency={concurrency} "
                   f"running_concurrency={running_concurrency} create_admission=running_slots "
                   f"process_count={process_count or 1} workers_per_process={workers_per_process or concurrency} "
                   f"launch_interval_sec={launch_interval_sec:.3f} "
-                  f"template={'mixed' if len({t.template for t in tasks}) > 1 else tasks[0].template} "
+                  f"early_stop_rounds={early_stop_rounds} "
+                  f"template={template_label} "
                   f"output_dir={output_dir}")
+        if unbounded:
+            print(f"early-stop: rounds={early_stop_rounds} slots={len(selection)} "
+                  f"concurrency={concurrency} processes={process_count} "
+                  f"task_pool=unbounded (total-multiplier ignored)", flush=True)
         await execution.run()
         if process_count is None:
             failure = execution.failure
@@ -157,6 +182,7 @@ async def run_batch(
             errors.append("Batch cancelled" if interrupted else f"{type(failure).__name__}: {failure}")
         error = "; ".join(dict.fromkeys(e for e in errors if e)) or None
         succeeded = sum(x["succeeded"] for x in items)
+        early_stop_status = result.get("early_stop")
         summary = {
             "schema_version": SCHEMA_VERSION,
             "execution_mode": mode,
@@ -170,7 +196,9 @@ async def run_batch(
             "elapsed_sec": elapsed,
             "concurrency": concurrency,
             "running_concurrency": running_concurrency,
-            "requested_total_tasks": len(tasks),
+            "requested_total_tasks": None if unbounded else len(tasks),
+            "early_stop_rounds": early_stop_rounds,
+            "early_stop": early_stop_status,
             "total": len(items),
             "succeeded": succeeded,
             "failed": len(items) - succeeded,
@@ -208,10 +236,19 @@ async def run_batch(
                 error = f"{error}; {report_error}" if error else report_error
                 summary["error"] = error
             write_json(output_dir / "batch-summary.json", summary)
-        batch_succeeded = succeeded == len(tasks) and not interrupted and not error
+        if unbounded:
+            batch_succeeded = (
+                bool(early_stop_status and early_stop_status.get("rounds_reached"))
+                and succeeded == len(items)
+                and not interrupted
+                and not error
+            )
+        else:
+            batch_succeeded = succeeded == len(tasks) and not interrupted and not error
         job_event("info" if batch_succeeded else "error",
                   f"Batch job completed status={'success' if batch_succeeded else 'failed'} "
                   f"total={summary['total']} succeeded={succeeded} failed={summary['failed']} "
+                  f"early_stop={early_stop_status} "
                   f"elapsed={summary['elapsed_sec']:.3f}s error={error} result={output_dir / 'batch-summary.json'}")
         status = "interrupted" if interrupted else (
             "success" if batch_succeeded else "completed_with_errors"
@@ -226,10 +263,12 @@ async def run_batch(
             f"succeeded: {summary['succeeded']}",
             f"failed: {summary['failed']}",
             f"concurrency: {summary['concurrency']}",
+            f"early_stop_rounds: {early_stop_rounds}",
+            f"early_stop_rounds_reached: {bool(early_stop_status and early_stop_status.get('rounds_reached'))}",
             f"observability_error: {summary['observability_error']}",
             f"observability_report_error: {summary['observability_report_error']}",
             f"result: {output_dir / 'batch-summary.json'}",
         ]), flush=True)
-    if failure is not None and (interrupted or (process_count is None and not startup_failed)):
+    if failure is not None and (interrupted or unbounded or (process_count is None and not startup_failed)):
         raise failure
     return summary
